@@ -1,0 +1,68 @@
+.workspace-toolbar {
+    height: 72px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    border-bottom: 1px solid #1e293b;
+    background: rgba(2, 6, 23, 0.95);
+}
+
+.workspace-info {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.workspace-label {
+    margin: 0 0 2px;
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
+.workspace-meta {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.workspace-pill {
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.16);
+    color: #bfdbfe;
+    font-size: 0.82rem;
+}
+
+.workspace-pill.muted {
+    background: rgba(148, 163, 184, 0.16);
+    color: #cbd5e1;
+}
+
+.workspace-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.workspace-actions button {
+    padding: 8px 12px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.2s ease;
+}
+
+.workspace-actions button:hover {
+    transform: translateY(-1px);
+    background: #1d4ed8;
+}
+
+.workspace-actions button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}

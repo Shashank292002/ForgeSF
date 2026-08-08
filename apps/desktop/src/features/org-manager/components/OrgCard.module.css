@@ -1,0 +1,340 @@
+.card {
+
+  background: var(--color-surface);
+
+  border:
+    1px solid var(--color-border);
+
+  border-radius:
+    var(--radius-md);
+
+
+  padding: 20px;
+
+  margin-bottom:
+    var(--space-md);
+
+
+  transition:
+    0.2s ease;
+
+
+}
+
+
+.card:hover {
+
+  border-color:
+    var(--color-primary);
+
+  transform:
+    translateY(-2px);
+
+}
+
+
+
+.selected {
+
+  border:
+    2px solid var(--color-primary);
+
+
+  box-shadow:
+    0 5px 15px rgba(37,99,235,0.15);
+
+}
+
+
+
+
+
+.header {
+
+  display:flex;
+
+  justify-content:
+    space-between;
+
+  align-items:
+    center;
+
+  margin-bottom:
+    16px;
+
+}
+
+
+
+
+.title {
+
+  font-size:
+    18px;
+
+  font-weight:
+    700;
+
+}
+
+
+
+
+
+.badge {
+
+  background:
+    #dcfce7;
+
+  color:
+    #166534;
+
+
+  padding:
+    5px 10px;
+
+
+  border-radius:
+    20px;
+
+
+  font-size:
+    12px;
+
+
+  font-weight:
+    600;
+
+}
+
+
+
+
+
+.info {
+
+  display:flex;
+
+  flex-direction:
+    column;
+
+
+  gap:
+    8px;
+
+
+  font-size:
+    14px;
+
+}
+
+
+
+
+
+.label {
+
+  font-weight:
+    600;
+
+  color:
+    #6b7280;
+
+}
+
+
+
+
+
+.connected {
+
+  color:
+    #15803d;
+
+  font-weight:
+    600;
+
+}
+
+
+
+
+
+.disconnected {
+
+  color:
+    #dc2626;
+
+  font-weight:
+    600;
+
+}
+
+
+
+
+
+.active {
+
+  margin-top:
+    15px;
+
+
+  padding:
+    10px;
+
+
+  background:
+    #eff6ff;
+
+
+  color:
+    #1d4ed8;
+
+
+  border-radius:
+    var(--radius-sm);
+
+
+  font-weight:
+    600;
+
+
+  font-size:
+    13px;
+
+}
+
+
+
+
+
+.actions {
+
+  display:flex;
+
+  gap:
+    10px;
+
+
+  margin-top:
+    18px;
+
+}
+
+
+
+
+
+.button {
+
+  padding:
+    8px 14px;
+
+
+  border:
+    1px solid var(--color-border);
+
+
+  border-radius:
+    var(--radius-sm);
+
+
+  background:
+    white;
+
+
+  cursor:
+    pointer;
+
+
+  font-size:
+    14px;
+
+
+  font-weight:
+    600;
+
+
+  transition:
+    0.2s ease;
+
+}
+
+
+
+
+.button:hover {
+
+  border-color:
+    var(--color-primary);
+
+
+  color:
+    var(--color-primary);
+
+}
+
+
+
+
+
+.primary {
+
+  background:
+    var(--color-primary);
+
+
+  color:
+    white;
+
+
+  border-color:
+    var(--color-primary);
+
+}
+
+
+
+.primary:hover {
+
+  opacity:
+    0.9;
+
+  color:
+    white;
+
+}
+
+
+
+
+
+.danger {
+
+  background:
+    #fee2e2;
+
+
+  color:
+    #b91c1c;
+
+
+  border-color:
+    #fecaca;
+
+}
+
+
+
+
+.danger:hover {
+
+  background:
+    #fecaca;
+
+
+  color:
+    #991b1b;
+
+}

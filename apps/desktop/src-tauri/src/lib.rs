@@ -1,16 +1,43 @@
+mod commands;
+
+use commands::{
+    connect_salesforce,
+    open_org,
+    set_default_org,
+    logout_org,
+    list_metadata_types,
+    list_metadata_components,
+    retrieve_metadata,
+    get_org_details,
+    list_workspace_files,
+    read_workspace_file,
+    read_workspace,
+};
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
-    .setup(|app| {
-      if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
-      }
-      Ok(())
-    })
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    tauri::Builder::default()
+        .plugin(
+            tauri_plugin_store::Builder::new()
+                .build()
+        )
+        .invoke_handler(
+            tauri::generate_handler![
+                connect_salesforce,
+                open_org,
+                set_default_org,
+                logout_org,
+                list_metadata_types,
+                list_metadata_components,
+                retrieve_metadata,
+                get_org_details,
+                list_workspace_files,
+                read_workspace_file,
+                read_workspace,
+            ]
+        )
+        .run(
+            tauri::generate_context!()
+        )
+        .expect("error while running tauri application");
 }

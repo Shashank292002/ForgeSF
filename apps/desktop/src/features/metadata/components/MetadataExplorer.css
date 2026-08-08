@@ -1,0 +1,29 @@
+.component-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
+}
+
+.component-item:hover {
+    background: #252526;
+}
+
+.component-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    cursor: pointer;
+    color: #d4d4d4;
+}
+
+.component-name:hover {
+    color: #4fc3f7;
+}
+
+.component-icon {
+    width: 18px;
+    text-align: center;
+}

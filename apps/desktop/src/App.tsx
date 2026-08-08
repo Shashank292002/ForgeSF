@@ -1,11 +1,7 @@
+import { AppRouter } from "./app/router";
+
 function App() {
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <h1 className="text-4xl font-bold">
-        🚀 ForgeSF
-      </h1>
-    </div>
-  );
+  return <AppRouter />;
 }
 
 export default App;

@@ -1,0 +1,67 @@
+.workspace-explorer {
+    width: 280px;
+    border-right: 1px solid #1e293b;
+    padding: 16px;
+    background: rgba(2, 6, 23, 0.82);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.explorer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #1e293b;
+}
+
+.explorer-label {
+    margin: 0 0 4px;
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
+.explorer-header h3 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.explorer-badge {
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.2);
+    color: #93c5fd;
+    font-size: 0.75rem;
+}
+
+.explorer-list {
+    overflow: auto;
+}
+
+.tree-node {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 10px;
+    color: #cbd5e1;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.tree-node:hover {
+    background: rgba(30, 41, 59, 0.9);
+}
+
+.tree-node.active {
+    background: linear-gradient(90deg, rgba(37, 99, 235, 0.24), rgba(37, 99, 235, 0.08));
+    color: #fff;
+}
+
+.tree-icon {
+    width: 16px;
+    color: #60a5fa;
+}

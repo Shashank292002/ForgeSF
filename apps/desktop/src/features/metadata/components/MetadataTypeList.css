@@ -1,0 +1,9 @@
+.metadata-left {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.metadata-left .metadata-search {
+    margin: 14px 14px 8px;
+}

@@ -1,28 +1,22 @@
 import OrgCard from "./OrgCard";
+import EmptyState from "./EmptyState";
 import { useOrganizationStore } from "../../../store/orgStore";
 
-export default function OrgList() {
+import styles from "./OrgList.module.css";
 
-  const organizations = useOrganizationStore(
-    (state) => state.organizations
-  );
+export default function OrgList() {
+  const organizations = useOrganizationStore((s) => s.organizations);
 
   if (organizations.length === 0) {
-    return (
-      <p>
-        No organizations connected yet.
-      </p>
-    );
+    return <EmptyState />;
   }
 
   return (
-    <div>
+    <div className={styles.grid}>
       {organizations.map((org) => (
-        <OrgCard
-          key={org.id}
-          org={org}
-        />
+        <OrgCard key={org.id} org={org} />
       ))}
     </div>
   );
 }
+

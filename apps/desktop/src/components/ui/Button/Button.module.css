@@ -2,35 +2,122 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
 
-  padding: 10px 18px;
-
-  border: none;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
 
   cursor: pointer;
 
+  font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
 
-  transition: all 0.2s ease;
+  transition:
+    transform var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease,
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    opacity var(--motion-fast) ease;
 }
 
+.button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Sizes ─────────────────────────────── */
+.sm {
+  padding: 7px 12px;
+  font-size: 13px;
+}
+.md {
+  padding: 10px 18px;
+}
+.lg {
+  padding: 13px 24px;
+  font-size: 15px;
+  border-radius: var(--radius-md);
+}
+
+/* ── Variants ──────────────────────────── */
 .primary {
   background: var(--color-primary);
-  color: white;
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(109, 91, 255, 0.28);
+}
+.primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(109, 91, 255, 0.38);
 }
 
-.primary:hover {
-  opacity: 0.9;
+.gradient {
+  background: var(--gradient-brand);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(157, 77, 255, 0.32);
+  background-size: 150% 150%;
+}
+.gradient:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background-position: 100% 50%;
+  box-shadow: 0 12px 34px rgba(157, 77, 255, 0.44);
 }
 
 .secondary {
-  background: var(--color-surface);
+  background: var(--color-surface-elevated);
   color: var(--color-text);
-  border: 1px solid var(--color-border);
+  border-color: var(--color-border);
+}
+.secondary:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: var(--color-surface-hover);
+  transform: translateY(-1px);
 }
 
-.secondary:hover {
-  border-color: var(--color-primary);
+.ghost {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-color: transparent;
+}
+.ghost:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.danger {
+  background: var(--color-error-soft);
+  color: var(--color-error);
+  border-color: transparent;
+}
+.danger:hover:not(:disabled) {
+  background: var(--color-error);
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(251, 113, 133, 0.32);
+}
+
+/* ── Spinner ───────────────────────────── */
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

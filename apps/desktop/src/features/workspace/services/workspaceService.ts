@@ -43,3 +43,10 @@ export async function loadWorkspaceFileContent(path: string) {
         path,
     });
 }
+
+export async function saveWorkspaceFileContent(path: string, content: string) {
+    return await invoke<string>("write_workspace_file", {
+        path,
+        content,
+    });
+}

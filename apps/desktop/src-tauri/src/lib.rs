@@ -8,9 +8,13 @@ use commands::{
     list_metadata_types,
     list_metadata_components,
     retrieve_metadata,
+    deploy_workspace,
+    run_query,
+    run_command,
     get_org_details,
     list_workspace_files,
     read_workspace_file,
+    write_workspace_file,
     read_workspace,
 };
 
@@ -30,9 +34,13 @@ pub fn run() {
                 list_metadata_types,
                 list_metadata_components,
                 retrieve_metadata,
+                deploy_workspace,
+                        run_query,
+                        run_command,
                 get_org_details,
                 list_workspace_files,
                 read_workspace_file,
+                write_workspace_file,
                 read_workspace,
             ]
         )

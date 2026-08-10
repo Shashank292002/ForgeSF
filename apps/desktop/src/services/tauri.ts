@@ -73,3 +73,25 @@ export function readWorkspaceFile(path: string) {
         { path }
     );
 }
+
+export function writeWorkspaceFile(path: string, content: string) {
+    return invoke<string>(
+        "write_workspace_file",
+        { path, content }
+    );
+}
+
+export function deployWorkspace(username: string, checkOnly = false) {
+    return invoke<string>("deploy_workspace", {
+        username,
+        checkOnly,
+    });
+}
+
+export function runQuery(username: string, query: string) {
+    return invoke<string>("run_query", { username, query });
+}
+
+export function runCommand(args: string[], input?: string) {
+    return invoke<string>("run_command", { args, input });
+}

@@ -1,46 +1,77 @@
-export const navigation = [
-  {
-    label: "Dashboard",
-    path: "/"
-  },
+import type { LucideIcon } from "lucide-react";
+import {
+  Home,
+  Users,
+  Database,
+  Layers,
+  Box,
+  CodeXml,
+  Rocket,
+  Plug,
+  Settings,
+  TerminalSquare,
+  FolderGit2,
+  Hammer,
+} from "lucide-react";
 
-  {
-    label: "Organizations",
-    path: "/organizations"
-  },
+export interface NavItem {
+  label: string;
+  path: string;
+  icon: LucideIcon;
+}
 
-  {
-    label: "Metadata",
-    path: "/metadata"
-  },
+export interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
 
+export const navigationGroups: NavGroup[] = [
   {
-    label: "Workspace",
-    path: "/workspace"
+    label: "Overview",
+    items: [
+      { label: "Dashboard", path: "/", icon: Home },
+    ],
   },
-
   {
-    label: "Deployments",
-    path: "/deployments"
+    label: "Org & Metadata",
+    items: [
+      { label: "Organizations", path: "/organizations", icon: Users },
+      { label: "Metadata", path: "/metadata", icon: Database },
+    ],
   },
-
   {
-    label: "SOQL",
-    path: "/soql"
+    label: "Develop",
+    items: [
+      { label: "Workspace", path: "/workspace", icon: FolderGit2 },
+      { label: "Apex", path: "/apex", icon: CodeXml },
+      { label: "Developer Tools", path: "/devtools", icon: TerminalSquare },
+      { label: "Deployments", path: "/deployments", icon: Rocket },
+    ],
   },
-
   {
-    label: "Apex",
-    path: "/apex"
-  },
-
-  {
-    label: "Plugins",
-    path: "/plugins"
-  },
-
-  {
-    label: "Settings",
-    path: "/settings"
+    label: "System",
+    items: [
+      { label: "Plugins", path: "/plugins", icon: Plug },
+      { label: "Settings", path: "/settings", icon: Settings },
+    ],
   },
 ];
+
+export const navigation: NavItem[] = navigationGroups.flatMap((g) => g.items);
+
+/** Legacy flat icon lookup kept for backward compatibility. */
+export function iconForLabel(label: string): LucideIcon {
+  const key = label.toLowerCase();
+  if (key.includes("dashboard")) return Home;
+  if (key.includes("organ")) return Users;
+  if (key.includes("meta")) return Database;
+  if (key.includes("workspace")) return Layers;
+  if (key.includes("deploy")) return Rocket;
+  if (key.includes("dev")) return TerminalSquare;
+  if (key.includes("apex")) return CodeXml;
+  if (key.includes("plugin")) return Plug;
+  if (key.includes("setting")) return Settings;
+  return Box;
+}
+
+export { Hammer };

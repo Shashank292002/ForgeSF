@@ -1,46 +1,47 @@
 import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
+import { CloudOff, ArrowRight } from "lucide-react";
+
 import useCurrentOrg from "../../hooks/useCurrentOrg";
+import { Button } from "../ui";
 
 import styles from "./OrgGuard.module.css";
 
-
 interface Props {
-    children: ReactNode;
+  children: ReactNode;
 }
 
+export default function OrgGuard({ children }: Props) {
+  const { organization } = useCurrentOrg();
+  const navigate = useNavigate();
 
-export default function OrgGuard({
-    children
-}: Props){
+  if (!organization) {
+    return (
+      <div className={styles.empty}>
+        <div className={styles.card}>
+          <span className={styles.icon}>
+            <CloudOff size={34} />
+          </span>
 
+          <h2 className={styles.title}>No Organization Connected</h2>
 
-const {
-    organization
-}=useCurrentOrg();
+          <p className={styles.text}>
+            Connect a Salesforce organization to unlock metadata browsing, code
+            execution, SOQL queries, and deployments.
+          </p>
 
+          <Button
+            variant="gradient"
+            size="lg"
+            rightIcon={<ArrowRight size={16} />}
+            onClick={() => navigate("/organizations")}
+          >
+            Go to Organizations
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
-
-if(!organization){
-
-return (
-
-<div className={styles.empty}>
-
-<h2>
-No Organization Selected
-</h2>
-
-<p>
-Connect a Salesforce organization before using this feature.
-</p>
-
-</div>
-
-);
-
-}
-
-
-return children;
-
+  return <>{children}</>;
 }

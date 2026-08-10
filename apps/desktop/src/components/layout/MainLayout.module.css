@@ -4,10 +4,17 @@
 
   width: 100%;
   height: 100vh;
+  height: 100dvh;
 
   background: var(--color-background);
   color: var(--color-text);
 
+  overflow: hidden;
+}
+
+/* ─── Workspace (VS Code full-bleed) ────────────────────── */
+.workspace {
+  background: var(--color-background);
   overflow: hidden;
 }
 
@@ -21,15 +28,23 @@
 
 .main {
   flex: 1;
+  min-width: 0;
 
   display: flex;
   flex-direction: column;
 
   padding: var(--space-lg);
 
-  background: var(--color-background);
+  background: transparent;
   color: var(--color-text);
 
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+/* Full-bleed editor experience for the Workspace */
+.workspaceMain {
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
 }

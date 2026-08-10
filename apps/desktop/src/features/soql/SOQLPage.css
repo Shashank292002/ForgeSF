@@ -1,0 +1,203 @@
+.soql-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.soql-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.soql-titleRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.soql-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 52px;
+  height: 52px;
+
+  border-radius: var(--radius-md);
+
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border: 1px solid rgba(34, 211, 238, 0.24);
+}
+
+.soql-header h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+
+.soql-subtitle {
+  margin-top: 6px;
+  color: var(--color-text-secondary);
+  font-size: 0.95rem;
+}
+
+.soql-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.soql-tab-button {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.92);
+  color: var(--color-text);
+  padding: 10px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.soql-tab-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.soql-tab-button.active {
+  background: var(--color-primary);
+  color: white;
+}
+
+.soql-panel-group {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.soql-panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  padding: 14px;
+  box-sizing: border-box;
+  background: rgba(8, 12, 24, 0.9);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.soql-input {
+  width: 100%;
+  flex: 1;
+  min-height: 220px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 16px;
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+  font-size: 0.95rem;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--color-text);
+  resize: none;
+}
+
+.soql-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.soql-action-button,
+.soql-snippets {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.95);
+  color: var(--color-text);
+  padding: 10px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.soql-action-button:hover:not(:disabled),
+.soql-snippets:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.soql-action-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.soql-resize-handle {
+  height: 8px;
+  cursor: row-resize;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
+}
+
+.soql-output-panel {
+  height: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+  background: rgba(8, 12, 24, 0.9);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.soql-output-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  color: var(--color-text-secondary);
+  font-size: 0.95rem;
+}
+
+.soql-records {
+  overflow: auto;
+  flex: 1;
+}
+
+.soql-record-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.soql-record-table th,
+.soql-record-table td {
+  text-align: left;
+  padding: 12px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--color-text);
+}
+
+.soql-output-pre {
+  flex: 1;
+  margin: 0;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 14px;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  overflow: auto;
+}
+
+@media (max-width: 900px) {
+  .soql-header,
+  .soql-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .soql-tabs {
+    justify-content: stretch;
+  }
+}

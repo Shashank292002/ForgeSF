@@ -1,7 +1,28 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use std::process::Stdio;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+fn find_sf_executable() -> Result<String, String> {
+    let candidates = vec![
+        r"C:\Program Files\sf\bin\sf.cmd".to_string(),
+        "sf".to_string(),
+        "sf.cmd".to_string(),
+    ];
+
+    for c in candidates {
+        let attempt = Command::new(&c).arg("--version").output();
+        if let Ok(output) = attempt {
+            // If the command ran (even if it printed to stderr), accept it.
+            if output.status.success() || !output.stdout.is_empty() || !output.stderr.is_empty() {
+                return Ok(c);
+            }
+        }
+    }
+
+    Err("Could not find 'sf' Salesforce CLI. Install 'sf' and ensure it's on PATH or set the expected path.".to_string())
+}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Organization {
@@ -27,7 +48,7 @@ pub struct OrgDetails {
 #[tauri::command]
 pub fn connect_salesforce() -> Result<Organization, String> {
 
-    let sf = r"C:\Program Files\sf\bin\sf.cmd";
+    let sf = find_sf_executable()?;
 
 
     // Login and get the exact org that was authenticated
@@ -124,7 +145,7 @@ pub fn open_org(
     username: String,
 ) -> Result<(), String> {
 
-    let sf = r"C:\Program Files\sf\bin\sf.cmd";
+    let sf = find_sf_executable()?;
 
     let output = Command::new(sf)
         .args([
@@ -151,7 +172,7 @@ pub fn set_default_org(
     username: String
 ) -> Result<String, String> {
 
-    let sf = r"C:\Program Files\sf\bin\sf.cmd";
+    let sf = find_sf_executable()?;
 
     let output = Command::new(sf)
         .args([
@@ -189,7 +210,7 @@ pub fn logout_org(
     username: String
 ) -> Result<String, String> {
 
-    let sf = r"C:\Program Files\sf\bin\sf.cmd";
+    let sf = find_sf_executable()?;
 
     let output = Command::new(sf)
         .args([
@@ -241,7 +262,7 @@ pub fn list_metadata_types(
     username: String,
 ) -> Result<Vec<MetadataType>, String> {
 
-    let sf = r"C:\Program Files\sf\bin\sf.cmd";
+    let sf = find_sf_executable()?;
 
     let output = Command::new(sf)
         .args([
@@ -291,7 +312,7 @@ pub fn get_org_details(
     username: String,
 ) -> Result<OrgDetails, String> {
 
-    let sf = r"C:\Program Files\sf\bin\sf.cmd";
+    let sf = find_sf_executable()?;
 
     let output = Command::new(sf)
         .args([
@@ -352,7 +373,7 @@ pub fn list_metadata_components(
     username: String,
 ) -> Result<Vec<String>, String> {
 
-    let sf = r"C:\Program Files\sf\bin\sf.cmd";
+    let sf = find_sf_executable()?;
 
     let output = Command::new(sf)
         .args([
@@ -409,7 +430,7 @@ pub fn retrieve_metadata(
     username: String,
 ) -> Result<String, String> {
 
-    let sf = r"C:\Program Files\sf\bin\sf.cmd";
+    let sf = find_sf_executable()?;
 
     let mut command = Command::new(sf);
 
@@ -460,6 +481,66 @@ pub fn retrieve_metadata(
             String::from_utf8_lossy(&output.stderr)
         ))
     }
+}
+
+#[tauri::command]
+pub fn deploy_workspace(
+    username: String,
+    check_only: bool,
+) -> Result<String, String> {
+
+    let sf = find_sf_executable()?;
+
+    let workspace = get_workspace()?;
+
+    let mut command = Command::new(&sf);
+
+    command.args([
+        "project",
+        "deploy",
+        "start",
+        "--target-org",
+        &username,
+        "--source-dir",
+        "force-app",
+        "--json",
+    ]);
+
+    if check_only {
+        // prefer --check-only; if unsupported the command will return stderr which we capture
+        command.arg("--check-only");
+    }
+
+    command.current_dir(&workspace);
+
+    println!("Running deploy command: {:?}", command);
+
+    let output = command
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    println!("Deploy Exit Status: {:?}", output.status);
+
+    println!(
+        "DEPLOY STDOUT:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    println!(
+        "DEPLOY STDERR:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(format!(
+            "STDOUT:\n{}\n\nSTDERR:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+
 }
 
 fn get_workspace() -> Result<PathBuf, String> {
@@ -565,6 +646,31 @@ pub fn read_workspace_file(
             .map_err(|e| e.to_string())?;
 
     Ok(contents)
+}
+
+#[tauri::command]
+pub fn write_workspace_file(
+    path: String,
+    content: String,
+) -> Result<String, String> {
+
+    let workspace = get_workspace()?;
+
+    let full_path = if Path::new(&path).is_absolute() {
+        PathBuf::from(&path)
+    } else {
+        workspace.join(path)
+    };
+
+    if let Some(parent) = full_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| e.to_string())?;
+    }
+
+    fs::write(&full_path, content)
+        .map_err(|e| e.to_string())?;
+
+    Ok(full_path.to_string_lossy().to_string())
 }
 
 #[derive(Serialize)]
@@ -700,4 +806,64 @@ fn read_directory(
 
     Ok(nodes)
 
+}
+
+#[tauri::command]
+pub fn run_query(username: String, query: String) -> Result<String, String> {
+    let sf = find_sf_executable()?;
+
+    let mut command = Command::new(&sf);
+    command.args(["data", "query", "--target-org", &username, "--json"]);
+    command.arg("--query");
+    command.arg(query);
+
+    let output = command.output().map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(format!(
+            "STDOUT:\n{}\n\nSTDERR:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
+#[tauri::command]
+pub fn run_command(args: Vec<String>, input: Option<String>) -> Result<String, String> {
+    let sf = find_sf_executable()?;
+
+    let mut command = Command::new(&sf);
+    if !args.is_empty() {
+        command.args(args);
+    }
+
+    // If input provided, pipe to stdin
+    if input.is_some() {
+        command.stdin(Stdio::piped());
+    }
+
+    let mut child = command.spawn().map_err(|e| e.to_string())?;
+
+    if let Some(input_str) = input {
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            stdin
+                .write_all(input_str.as_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(format!(
+            "STDOUT:\n{}\n\nSTDERR:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
 }

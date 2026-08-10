@@ -1,20 +1,47 @@
-.workspace-page {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    background: linear-gradient(135deg, #020617 0%, #0f172a 100%);
-    color: #e2e8f0;
+/* ── ForgeSF Workspace — VS Code style layout ─────────────── */
+
+.forge-ws {
+  display: flex;
+  flex-direction: column;
+
+  width: 100%;
+  height: 100%;
+
+  background: #0b0e1a;
+  color: var(--color-text);
+
+  overflow: hidden;
 }
 
-.workspace-body {
-    display: flex;
-    flex: 1;
-    min-height: 0;
+.forge-ws__main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.workspace-main-pane {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
+.forge-ws__center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.forge-ws__placeholder {
+  padding: 20px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* VS Code palette overrides for the workspace */
+.forge-ws {
+  --fw-bg: #0b0e1a;
+  --fw-panel: #131728;
+  --fw-panel2: #181d33;
+  --fw-border: rgba(148, 163, 184, 0.12);
+  --fw-hover: rgba(255, 255, 255, 0.05);
+  --fw-active: rgba(109, 91, 255, 0.16);
+  --fw-text: #e6ebff;
+  --fw-muted: #7e8bb0;
 }

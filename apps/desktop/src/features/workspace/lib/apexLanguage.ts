@@ -1,0 +1,184 @@
+import type { Monaco } from "./monaco";
+
+/** Minimal Apex syntax highlight (Monarch tokenizer). */
+export function registerApexLanguage(monaco: Monaco): void {
+  const isAlreadyRegistered = monaco.languages
+    .getLanguages()
+    .some((languageItem) => languageItem.id === "apex");
+
+  if (isAlreadyRegistered) {
+    return;
+  }
+
+  monaco.languages.register({ id: "apex", extensions: [".cls", ".trigger"] });
+
+  monaco.languages.setMonarchTokensProvider("apex", {
+    defaultToken: "",
+    tokenPostfix: ".apex",
+
+    keywords: [
+      "abstract", "activate", "and", "any", "as", "asc", "autonomous",
+      "begin", "bigdecimal", "blob", "break", "bulk", "by",
+      "case", "cast", "catch", "class", "collect", "commit", "const",
+      "continue", "convertcurrency", "date", "datetime", "decimal",
+      "default", "delete", "desc", "do", "else", "end", "enum",
+      "exception", "exec", "explain", "external", "final", "finally",
+      "float", "for", "from", "future", "global", "goto", "group",
+      "having", "hide", "if", "implements", "import", "in", "inherited",
+      "inner", "insert", "instanceof", "int", "integer", "interface",
+      "into", "is", "join", "last_90_days", "last_month", "last_n_days",
+      "last_week", "like", "limit", "list", "long", "map", "merge",
+      "new", "next_90_days", "next_month", "next_n_days", "next_week",
+      "not", "null", "nulls", "number", "object", "of", "on", "or",
+      "outer", "override", "package", "parallel", "pragma", "private",
+      "protected", "public", "retrieve", "return", "returning", "reverse",
+      "rollback", "rpc", "savepoint", "search", "select", "set", "setup",
+      "show", "similar", "sort", "static", "super", "switch", "system",
+      "systemmethods", "test", "testmethod", "then", "this", "this.today",
+      "thisweek", "throw", "time", "today", "transaction", "treat", "trigger",
+      "true", "try", "type", "undelete", "update", "upsert", "using",
+      "values", "virtual", "void", "webService", "when", "where", "while",
+      "with", "without",
+      "System", "Database", "Limits", "Test", "String", "Integer", "Long",
+      "Double", "Date", "Datetime", "Boolean", "Object", "Id", "List",
+      "Map", "Set", "SObject",
+    ],
+
+    typeKeywords: [
+      "boolean", "date", "datetime", "decimal", "double", "id", "integer",
+      "long", "string", "time",
+    ],
+
+    operators: [
+      "=", ">", "<", "!", "~", "?", ":", "==", "<=", ">=", "!=", "&&", "||",
+      "++", "--", "+", "-", "*", "/", "&", "|", "^", "%", ">>>", ">>", "<<",
+      ">>>=", ">>=", "<<=", "&=", "|=", "^=", "%=", "*=", "/=", "+=", "-=",
+    ],
+
+    symbols: /[=><!~?:&|+\-*/^%]+/,
+
+    tokenizer: {
+      root: [
+        [/[a-zA-Z_$][\w$]*/, {
+          cases: {
+            "@typeKeywords": "keyword",
+            "@keywords": "keyword",
+            "@default": "identifier",
+          },
+        }],
+
+[/{}`()[\]]/, "@brackets"],
+
+        [/@symbols/, {
+          cases: {
+            "@operators": "operator",
+            "@default": "",
+          },
+        }],
+
+        [/@[\w$]+/, "annotation"],
+        [/[ \t\r\n]+/, "white"],
+
+        [/[#]/, "number"],
+        [/"""([^""\\]|\\.)*"""/, "string"],
+        [/'/, { token: "string.quote", bracket: "@open", next: "@string" }],
+        [/"/, { token: "string.quote", bracket: "@open", next: "@doubleString" }],
+
+        [/\d*\.\d+([eE][-+]?\d+)?/, "number.float"],
+        [/0[xX][0-9a-fA-F]+/, "number.hex"],
+        [/\d+/, "number"],
+
+        [/\/\*/, "comment", "@comment"],
+        [/\/\/.*$/, "comment"],
+[/\/{2}.*$/, "comment"],
+      ],
+
+      comment: [
+        [/[^@]+/, "comment"],
+        [/@\w[\w$]*/, "annotation"],
+        [/\*\//, "comment", "@pop"],
+        [/.+/, "comment"],
+      ],
+
+      string: [
+        [/([^'\\])+/, "string"],
+        [/\\./, "string.escape"],
+        [/'/, { token: "string.quote", bracket: "@close", next: "@pop" }],
+      ],
+
+      doubleString: [
+        [/([^"\\])+/, "string"],
+        [/\\./, "string.escape"],
+        [/"/, { token: "string.quote", bracket: "@close", next: "@pop" }],
+      ],
+
+      multiline: [
+        [/[^@]+/, "comment"],
+        [/\*@/, "comment.doc"],
+        [/@\w[\w$]*/, "annotation"],
+        [/\*\//, "comment", "@pop"],
+        [/.+/, "comment"],
+      ],
+    },
+  });
+}
+
+/* ──────────────────────────────────────────────────────────────
+   ForgeSF dark editor theme (VS Code Dark+ inspired)
+   ────────────────────────────────────────────────────────────── */
+
+export function defineForgeTheme(monaco: Monaco): void {
+  monaco.editor.defineTheme("forge-dark", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [
+      { token: "comment", foreground: "6a9955", fontStyle: "italic" },
+      { token: "comment.doc", foreground: "6a9955", fontStyle: "italic" },
+      { token: "keyword", foreground: "569cd6" },
+      { token: "annotation", foreground: "dcdcaa" },
+      { token: "string", foreground: "ce9178" },
+      { token: "string.quote", foreground: "ce9178" },
+      { token: "string.escape", foreground: "d7ba7d" },
+      { token: "number", foreground: "b5cea8" },
+      { token: "number.float", foreground: "b5cea8" },
+      { token: "number.hex", foreground: "b5cea8" },
+      { token: "operator", foreground: "d4d4d4" },
+      { token: "identifier", foreground: "9cdcfe" },
+      { token: "type", foreground: "4ec9b0" },
+      { token: "delimiter", foreground: "808080" },
+      { token: "delimiter.bracket", foreground: "d4d4d4" },
+      { token: "tag", foreground: "569cd6" },
+      { token: "attribute.name", foreground: "9cdcfe" },
+      { token: "attribute.value", foreground: "ce9178" },
+      { token: "meta.tag", foreground: "569cd6" },
+      { token: "invalid", foreground: "f44747" },
+    ],
+    colors: {
+      "editor.background": "#1e1e1e",
+      "editor.foreground": "#d4d4d4",
+      "editorLineNumber.foreground": "#858585",
+      "editorLineNumber.activeForeground": "#c6c6c6",
+      "editorCursor.foreground": "#aeafad",
+      "editor.selectionBackground": "#264f78",
+      "editor.inactiveSelectionBackground": "#3a3d41",
+      "editor.lineHighlightBackground": "#2a2d2e",
+      "editorIndentGuide.background1": "#404040",
+      "editorIndentGuide.activeBackground1": "#707070",
+      "editorWhitespace.foreground": "#3b3b3b",
+      "editorWidget.background": "#252526",
+      "editorWidget.border": "#454545",
+      "editorSuggestWidget.background": "#252526",
+      "editorSuggestWidget.selectedBackground": "#04395e",
+      "editorSuggestWidget.highlightForeground": "#6d5bff",
+      "editorHoverWidget.background": "#252526",
+      "editorHoverWidget.border": "#454545",
+      "editorGutter.background": "#1e1e1e",
+      "editorBracketHighlight.foreground1": "#569cd6",
+      "editorBracketHighlight.foreground2": "#ce9178",
+      "scrollbarSlider.background": "#79797966",
+      "scrollbarSlider.hoverBackground": "#64646466",
+      "scrollbarSlider.activeBackground": "#bfbfbf66",
+      "minimap.background": "#1e1e1e",
+    },
+  });
+}

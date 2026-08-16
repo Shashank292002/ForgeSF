@@ -1,0 +1,304 @@
+/* ──────────────────────────────────────────────────────────────
+   ForgeSF Workspace — VS Code-style dark chrome
+   ────────────────────────────────────────────────────────────── */
+
+.forge-ws {
+  --fw-bg: #1e1e1e;
+  --fw-bg-dark: #181818;
+  --fw-bg-drop: #1b1b1b;
+  --fw-bg-activitybar: #333333;
+  --fw-bg-sidebar: #252526;
+  --fw-bg-header: #2d2d30;
+  --fw-bg-tab: #2d2d30;
+  --fw-bg-tab-active: #1e1e1e;
+  --fw-bg-hover: rgba(255, 255, 255, 0.08);
+  --fw-bg-active: #094771;
+  --fw-bg-statusbar: #007acc;
+  --fw-bg-input: #3c3c3c;
+  --fw-border: #3c3c3c;
+  --fw-border-soft: #333333;
+  --fw-text: #cccccc;
+  --fw-text-secondary: #9d9d9d;
+  --fw-muted: #858585;
+  --fw-accent: #0078d4;
+  --fw-accent-soft: rgba(0, 120, 212, 0.18);
+  --fw-brand: #6d5bff;
+  --fw-success: #89d185;
+  --fw-warning: #cca700;
+  --fw-error: #f14c4c;
+  --fw-info: #75beff;
+
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--fw-bg);
+  color: var(--fw-text);
+  font-size: 13px;
+  user-select: none;
+  position: relative;
+}
+
+.forge-ws__main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.forge-ws__panels {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.forge-ws :where(input, textarea, .editor-shell, pre, code, .monaco-editor) {
+  user-select: text;
+}
+
+/* Resize handles ------------------------------------------------ */
+
+.fw-resize-vertical {
+  width: 4px;
+  margin-left: -1px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.fw-resize-vertical:hover,
+.fw-resize-vertical:active {
+  background: var(--fw-brand);
+}
+
+.fw-resize-horizontal {
+  height: 4px;
+  margin-top: -1px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.fw-resize-horizontal:hover,
+.fw-resize-horizontal:active {
+  background: var(--fw-brand);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Boot screen
+   ────────────────────────────────────────────────────────────── */
+
+.forge-ws__boot {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #1e1e1e 0%, #141024 100%);
+}
+
+.forge-ws__boot-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  color: var(--fw-text-secondary);
+}
+
+.forge-ws__boot-mark {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6d5bff, #9d4dff);
+  color: #fff;
+  box-shadow: 0 14px 34px rgba(109, 91, 255, 0.35);
+  animation: forge-boot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes forge-boot-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.92);
+    opacity: 0.8;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Error screen
+   ────────────────────────────────────────────────────────────── */
+
+.forge-ws__error {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: linear-gradient(150deg, #1e1e1e, #17121f);
+}
+
+.forge-ws__error-card {
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  text-align: center;
+  padding: 32px 36px;
+  border: 1px solid var(--fw-border);
+  border-radius: 12px;
+  background: var(--fw-bg-drop);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.forge-ws__error-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(244, 76, 76, 0.14);
+  color: var(--fw-error);
+}
+
+.forge-ws__error h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fw-text);
+}
+
+.forge-ws__error p {
+  color: var(--fw-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.forge-ws__error-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.fw-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border: 1px solid var(--fw-border);
+  border-radius: 6px;
+  background: var(--fw-bg-input);
+  color: var(--fw-text);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.fw-btn:hover {
+  background: var(--fw-bg-hover);
+  border-color: var(--fw-accent);
+}
+
+.fw-btn--primary {
+  background: linear-gradient(135deg, #6d5bff, #8b5cf6);
+  border-color: transparent;
+  color: #fff;
+}
+
+.fw-btn--primary:hover {
+  filter: brightness(1.1);
+}
+
+.fw-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Shared input chrome ------------------------------------------ */
+
+.fw-input {
+  background: var(--fw-bg-input);
+  border: 1px solid transparent;
+  color: var(--fw-text);
+  border-radius: 4px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  width: 100%;
+}
+
+.fw-input::placeholder {
+  color: var(--fw-muted);
+}
+
+.fw-input:focus {
+  outline: none;
+  border-color: var(--fw-accent);
+}
+
+/* Metadata panel embedded inside the VS Code sidebar ------------ */
+
+.forge-sidebar .metadata-panel {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--fw-bg-sidebar);
+  padding: 10px 8px;
+}
+
+.forge-sidebar .metadata-panel__header,
+.forge-sidebar .metadata-panel__label {
+  display: none;
+}
+
+/* Scrollbars tuned to the VS Code palette ----------------------- */
+
+.forge-ws ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.forge-ws ::-webkit-scrollbar-thumb {
+  background: rgba(121, 121, 121, 0.4);
+  background-clip: content-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+
+.forge-ws ::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 100, 100, 0.6);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+
+.forge-ws ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.forge-ws__boot-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--fw-brand);
+  animation: forge-boot-spin 0.8s linear infinite;
+}
+
+@keyframes forge-boot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.forge-ws__boot-hint {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}

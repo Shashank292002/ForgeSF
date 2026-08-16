@@ -1,0 +1,70 @@
+:root {
+  /* ─── Brand Palette ─────────────────────────────────────────── */
+  --color-primary: #6d5bff;
+  --color-primary-soft: rgba(109, 91, 255, 0.14);
+  --color-secondary: #9d4dff;
+  --color-accent: #22d3ee;
+  --color-accent-soft: rgba(34, 211, 238, 0.14);
+  --color-pink: #ec4899;
+  --color-amber: #fbbf24;
+
+  --gradient-brand: linear-gradient(135deg, #6d5bff 0%, #9d4dff 55%, #ec4899 110%);
+  --gradient-accent: linear-gradient(135deg, #22d3ee 0%, #2dd4bf 100%);
+  --gradient-warm: linear-gradient(135deg, #fbbf24 0%, #fb7185 100%);
+
+  /* ─── Surfaces ──────────────────────────────────────────────── */
+  --color-background: #060913;
+  --color-surface: #0d1424;
+  --color-surface-elevated: rgba(19, 28, 48, 0.96);
+  --color-surface-hover: rgba(255, 255, 255, 0.06);
+  --color-glass: rgba(13, 20, 36, 0.72);
+
+  /* ─── Lines & Borders ───────────────────────────────────────── */
+  --color-border: rgba(148, 163, 184, 0.16);
+  --color-border-strong: rgba(148, 163, 184, 0.28);
+
+  /* ─── Text ──────────────────────────────────────────────────── */
+  --color-text: #eef2ff;
+  --color-text-secondary: #a5b4d0;
+  --color-text-muted: #6b7ba0;
+
+  /* ─── Status ────────────────────────────────────────────────── */
+  --color-success: #34d399;
+  --color-success-soft: rgba(52, 211, 153, 0.14);
+  --color-warning: #fbbf24;
+  --color-warning-soft: rgba(251, 191, 36, 0.14);
+  --color-error: #fb7185;
+  --color-error-soft: rgba(251, 113, 133, 0.14);
+  --color-info: #60a5fa;
+  --color-info-soft: rgba(96, 165, 250, 0.14);
+  --color-purple: #c084fc;
+  --color-purple-soft: rgba(192, 132, 252, 0.14);
+
+  /* ─── Spacing ───────────────────────────────────────────────── */
+  --space-xxs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 18px;
+  --space-lg: 26px;
+  --space-xl: 36px;
+
+  /* ─── Border Radius ─────────────────────────────────────────── */
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-pill: 999px;
+
+  /* ─── Shadows & elevation ───────────────────────────────────── */
+  --shadow-sm: 0 8px 22px rgba(1, 9, 21, 0.28);
+  --shadow-md: 0 20px 48px rgba(1, 9, 21, 0.38);
+  --shadow-glow: 0 0 0 1px rgba(109, 91, 255, 0.4), 0 10px 34px rgba(109, 91, 255, 0.22);
+
+  /* ─── Motion ────────────────────────────────────────────────── */
+  --motion-fast: 160ms;
+  --motion-medium: 260ms;
+  --motion-smooth: 460ms;
+
+  /* ─── Fonts ─────────────────────────────────────────────────── */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, "Roboto Mono", monospace;
+}

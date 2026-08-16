@@ -1,0 +1,10 @@
+.metadata-left {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.metadata-left .metadata-types {
+    min-height: 0;
+}

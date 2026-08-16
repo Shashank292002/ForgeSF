@@ -15,8 +15,9 @@ Build • Explore • Analyze • Deploy
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-Planning-blue" />
+  <img src="https://img.shields.io/badge/Status-In%20Development-blue" />
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-success" />
+  <img src="https://img.shields.io/badge/UI-Tauri%20%2B%20React-informational" />
   <img src="https://img.shields.io/badge/Open%20Source-Yes-green" />
   <img src="https://img.shields.io/badge/License-Apache%202.0-orange" />
 </p>
@@ -40,6 +41,8 @@ Instead of switching between:
 - Debug Logs
 
 ForgeSF provides a unified experience focused on productivity and developer experience.
+
+ForgeSF is built as a **Tauri + React** desktop application backed by a **Rust** core that shells out to the **Salesforce CLI (`sf`)**. Today the app ships a working, connected development workspace with **Org Manager**, a **Metadata Explorer**, unified **Developer Tools** (SOQL / SOSL / Anonymous Apex / CLI), a Monaco-powered **Workspace editor** with deploy support, and a **Deployments** manager.
 
 ---
 
@@ -74,75 +77,54 @@ ForgeSF will provide:
 
 ---
 
-# ✨ Planned Features
+# ✨ Features
 
-## 🏢 Org Manager
+## ✅ Implemented in the current build
 
-- Multiple org management
-- OAuth authentication
-- Scratch Org support
-- Sandbox management
-- Connected org dashboard
-- Org aliases
-- Favourite orgs
+The following modules are functional in the desktop app today:
 
----
+### 🏢 Org Manager
+- Connect, list, and switch between multiple Salesforce orgs (OAuth via Salesforce CLI)
+- Org aliases, default-org selection, and connection status
+- Open the org in a browser, log out, and inspect org details
 
-## 🔍 SOQL Studio
+### 🧰 Developer Tools (single hub)
+- **SOQL** and **SOSL** — run queries against the connected org with table & raw JSON views
+- **Anonymous Apex** — execute code directly against your org
+- **CLI** — run any `sf` command from the app
+- Query/command **history** (persisted locally, re-runnable), row counts, execution time, copy & format output
+- Keyboard shortcut `Ctrl/⌘ + Enter` to execute
 
-- Query editor
-- Syntax highlighting
-- Auto-complete
-- Query history
-- Saved queries
-- CSV export
-- Execution statistics
+### 📦 Metadata Explorer
+Browse and retrieve metadata from any connected org:
+- Search and select metadata types, then browse the components of each type
+- Select multiple components and retrieve them into your local workspace
+- Refresh types/components, clear selections, and jump to the Workspace
 
----
+> **Note:** *Metadata* and *Anonymous Apex* no longer appear as top-level navigation items. To keep the sidebar clean they are surfaced through **Developer Tools** and the **Dashboard** quick actions — the underlying `/metadata` and `/apex` routes remain available.
 
-## ⚡ Apex Studio
+### 💻 Workspace
+- VS Code-style layout with an activity bar, file explorer, Monaco editor, and terminal
+- **Apex syntax highlighting** and language-aware editing for `.cls`, `.trigger`, `.xml`, and more
+- Create, rename, and delete files/folders inside the local `force-app` project
+- **Deploy** your source to the connected org (with check-only option)
 
-- Execute Anonymous Apex
-- Save snippets
-- Run history
-- Debug output
-- Execution logs
+### 🚀 Deployments
+- Validate and deploy workspace changes to a connected org
+- Deployment status and feedback from the Salesforce CLI
 
----
-
-## 📦 Metadata Explorer
-
-Explore every part of your Salesforce org.
-
-- Objects
-- Fields
-- Apex Classes
-- Triggers
-- LWC
-- Aura Components
-- Flows
-- Profiles
-- Permission Sets
-- Custom Metadata
-- Custom Labels
+### 🔌 Plugins & ⚙️ Settings
+- Foundational **Plugins** and **Settings** surfaces ready for the extensibility roadmap
 
 ---
 
-## 🚀 Deployment Center
+## 🧭 Planned & Roadmap Features
 
-Deploy metadata visually.
+The next sections describe the product roadmap. Items already shipped are listed above under *Implemented in the current build*.
 
-- Validate deployment
-- Deploy source
-- Deployment history
-- Rollback support
-- Deployment logs
+### 📊 Debug Center
 
----
-
-## 📊 Debug Center
-
-Visual debugging.
+Visual debugging (planned).
 
 - Live Debug Logs
 - CPU Usage
@@ -154,11 +136,9 @@ Visual debugging.
 
 ---
 
-## 🔄 Org Comparison
+### 🔄 Org Comparison
 
-Compare two Salesforce orgs.
-
-Compare
+Compare two Salesforce orgs (planned).
 
 - Objects
 - Fields
@@ -170,13 +150,11 @@ Compare
 
 ---
 
-## 🧠 Dependency Analyzer
+### 🧠 Dependency Analyzer
 
-Understand where metadata is used.
+Understand where metadata is used (planned).
 
-Example
-
-```
+```text
 Account.Status__c
 
 ↓
@@ -225,48 +203,91 @@ Future plugins may include:
 
 | Layer | Technology |
 |--------|------------|
-| Desktop | Tauri |
-| Frontend | React |
+| Desktop | Tauri (v2) |
+| Frontend | React 19 |
 | Language | TypeScript |
-| Styling | Tailwind CSS |
-| UI Components | shadcn/ui |
+| Styling | CSS Modules + global styles |
+| UI Components | Lucide icons + custom components (Button, Badge, Card, Input) |
 | State Management | Zustand |
 | Data Fetching | TanStack Query |
 | Editor | Monaco Editor |
-| Graphs | React Flow |
-| Backend | Rust |
-| Local Database | SQLite |
-| Testing | Vitest |
-| End-to-End Testing | Playwright |
-| CI/CD | GitHub Actions |
+| Resizable Layouts | react-resizable-panels |
+| Routing | React Router |
+| Backend | Rust (Tauri commands) |
+| Salesforce Integration | Salesforce CLI (`sf`) |
+| Testing | Vitest (planned) |
+| End-to-End Testing | Playwright (planned) |
+| CI/CD | GitHub Actions (planned) |
+
+---
+
+# 🖥 Getting Started (Development)
+
+## Prerequisites
+
+- [Node.js](https://nodejs.org/) 20+ and [pnpm](https://pnpm.io/)
+- [Rust](https://rustup.rs/) toolchain (stable) for the Tauri backend
+- [Tauri v2 CLI](https://v2.tauri.app/) (`cargo install tauri-cli --version "^2"` or via pnpm)
+- [Salesforce CLI (`sf`)](https://developer.salesforce.com/tools/salesforcecli) available on `PATH` (or installed at `C:\Program Files\sf`)
+
+## Install
+
+```bash
+# from the repository root
+pnpm install
+
+# the desktop app lives in apps/desktop
+cd apps/desktop
+pnpm install
+```
+
+## Run
+
+```bash
+# Tauri desktop app (full backend)
+pnpm tauri dev
+
+# Frontend-only (Vite dev server, backend commands unavailable)
+pnpm dev
+```
+
+## Build & lint
+
+```bash
+pnpm build   # type-check + production bundle
+pnpm lint    # ESLint
+```
 
 ---
 
 # 📂 Repository Structure
+
+The current, actively-developed app is a single **Tauri desktop** application under `apps/desktop`. Its React frontend is organised by feature:
 
 ```
 ForgeSF
 │
 ├── apps/
 │   └── desktop/
+│       ├── src/
+│       │   ├── app/            # routing / app shell
+│       │   ├── components/     # shared UI, layout, navigation
+│       │   ├── features/       # feature modules (org-manager, metadata,
+│       │   │                   #   soql/dev-tools, workspace, deployments, …)
+│       │   ├── hooks/
+│       │   ├── lib/
+│       │   ├── providers/
+│       │   ├── services/       # Tauri-invoke wrappers (SF CLI calls)
+│       │   ├── store/          # Zustand stores
+│       │   └── styles/
+│       │
+│       ├── src-tauri/          # Rust backend (Tauri commands → sf CLI)
+│       └── workspace/          # local force-app source (Salesforce project)
 │
-├── packages/
-│   ├── auth/
-│   ├── core/
-│   ├── deployment/
-│   ├── graph/
-│   ├── metadata/
-│   ├── plugin-sdk/
-│   ├── salesforce/
-│   ├── shared/
-│   └── ui/
-│
-├── plugins/
-├── docs/
-├── website/
-├── assets/
-├── scripts/
-├── tests/
+├── docs/                       # (planned) project documentation
+├── plugins/                    # (planned) plugin SDK & marketplace
+├── packages/                   # (planned) shared packages
+├── website/                    # (planned) project website
 │
 ├── README.md
 ├── LICENSE
@@ -301,64 +322,51 @@ Documentation includes:
 
 # 🗺 Roadmap
 
-## Phase 1
-
+## ✅ Phase 1 — Foundation
 - Repository Setup
 - Documentation
 - Architecture
 - Branding
 
----
-
-## Phase 2
-
-- Desktop Foundation
-- Authentication
+## ✅ Phase 2 — Desktop Shell
+- Desktop Foundation (Tauri + React)
+- Authentication / Org connection via Salesforce CLI
 - Dashboard
 
----
-
-## Phase 3
-
+## ✅ Phase 3 — Core Developer Tools
 - Org Manager
-- SOQL Studio
-- Apex Runner
-
----
-
-## Phase 4
-
+- Developer Tools (SOQL / SOSL / Anonymous Apex / CLI)
 - Metadata Explorer
+
+## 🔄 Phase 4 — Workspace & Deploy
+- Workspace (Monaco editor, file explorer, terminal)
+- Deployments (validate & deploy)
+
+## ⏭ Phase 5
 - Debug Center
-
----
-
-## Phase 5
-
-- Deployment Center
 - Org Comparison
 
 ---
 
-## Phase 6
+## ⏭ Phase 6
 
 - Dependency Analyzer
 
 ---
 
-## Phase 7
+## ⏭ Phase 7
 
 - Plugin SDK
 
 ---
 
-## Phase 8
+## ⏭ Phase 8
 
 - AI Features
 
 ---
 
-## Phase 9
+## ⏭ Phase 9
 
 - Stable v1.0 Release
 
@@ -464,8 +472,15 @@ Together, we can build a better developer experience.
 
 ## 🚧 Project Status
 
-ForgeSF is currently in the architecture and planning phase.
+ForgeSF is an **active, in-development** project.
 
-The first milestone focuses on building a solid foundation before implementing the desktop application.
+The desktop application is functional and can already connect to Salesforce orgs, browse and retrieve metadata, run **SOQL / SOSL / Anonymous Apex / CLI** from unified Developer Tools, edit a local `force-app` workspace, and deploy changes.
+
+The current focus areas are:
+
+- Finishing the **Workspace** experience (editor, file explorer, terminal, deploy)
+- Polishing the **Dashboard**, **Org Manager**, and **Developer Tools** UX
+- Extending the **Metadata Explorer** for deeper org introspection
+- Building out **Deployments**, **Debug Center**, **Org Comparison**, and the **Plugin SDK**
 
 Stay tuned for updates!

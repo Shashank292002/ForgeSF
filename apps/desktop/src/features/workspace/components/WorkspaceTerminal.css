@@ -1,0 +1,151 @@
+.workspace-terminal {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--fw-bg-dark, #181818);
+}
+
+.workspace-terminal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 35px;
+  padding: 0 6px 0 20px;
+  background: var(--fw-bg-header);
+  flex-shrink: 0;
+}
+
+.workspace-terminal__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--fw-text-secondary);
+}
+
+.workspace-terminal__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workspace-terminal__deploying {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--fw-info);
+  padding-right: 8px;
+}
+
+.workspace-terminal__action {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--fw-muted);
+  cursor: pointer;
+}
+
+.workspace-terminal__action:hover {
+  background: var(--fw-bg-hover);
+  color: var(--fw-text);
+}
+
+.workspace-terminal__output {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-family: var(--fw-font-mono, "JetBrains Mono", monospace);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.workspace-terminal__line {
+  display: flex;
+  gap: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.workspace-terminal__time {
+  color: #6a737d;
+  flex-shrink: 0;
+}
+
+.workspace-terminal__text {
+  color: var(--fw-text-secondary);
+}
+
+.workspace-terminal__line.is-success .workspace-terminal__text {
+  color: var(--fw-success);
+}
+
+.workspace-terminal__line.is-error .workspace-terminal__text {
+  color: var(--fw-error);
+}
+
+.workspace-terminal__line.is-cmd .workspace-terminal__text {
+  color: var(--fw-text);
+}
+
+.workspace-terminal__line.is-warning .workspace-terminal__text {
+  color: var(--fw-warning);
+}
+
+.workspace-terminal__placeholder {
+  color: var(--fw-muted);
+  font-style: italic;
+}
+
+.workspace-terminal__input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 10px;
+  flex-shrink: 0;
+}
+
+.workspace-terminal__prompt {
+  color: var(--fw-brand);
+  font-weight: 700;
+}
+
+.workspace-terminal__input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--fw-text);
+  font-family: var(--fw-font-mono, "JetBrains Mono", monospace);
+  font-size: 12px;
+}
+
+.workspace-terminal__run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  background: var(--fw-brand);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: filter 120ms ease, opacity 120ms ease;
+}
+
+.workspace-terminal__run:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.workspace-terminal__run:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

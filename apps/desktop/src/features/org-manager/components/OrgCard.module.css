@@ -1,0 +1,166 @@
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+
+  padding: 20px;
+
+  background: var(--color-glass);
+  backdrop-filter: blur(12px);
+
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+
+  box-shadow: var(--shadow-sm);
+
+  transition: transform var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+
+.card:hover {
+  border-color: var(--color-border-strong);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+.selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px rgba(109, 91, 255, 0.35), 0 12px 34px rgba(109, 91, 255, 0.22);
+}
+
+/* ── Top row ──────────────────────────── */
+.cardTop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+
+  border-radius: var(--radius-md);
+
+  background: var(--gradient-accent);
+  color: #04283a;
+
+  box-shadow: 0 8px 20px rgba(34, 211, 238, 0.3);
+}
+
+.titleWrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.username {
+  display: block;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+/* ── Info list ────────────────────────── */
+.info {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.info li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.label {
+  font-weight: 600;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.info code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instance {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--color-accent);
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+/* ── Active banner ────────────────────── */
+.activeBanner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  padding: 9px;
+  border-radius: var(--radius-sm);
+
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  border: 1px solid rgba(52, 211, 153, 0.28);
+
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ── Actions ──────────────────────────── */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}

@@ -1,0 +1,59 @@
+.component-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
+}
+
+.component-item:hover {
+    background: #252526;
+}
+
+.component-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    cursor: pointer;
+    color: #d4d4d4;
+}
+
+.component-name:hover {
+    color: #4fc3f7;
+}
+
+.component-icon {
+    width: 18px;
+    text-align: center;
+}
+
+.component-empty {
+    margin: 0;
+    padding: 16px;
+    color: var(--text-faint, #6b7688);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 13px;
+    text-align: center;
+}
+
+.component-empty--error {
+    color: #ef4444;
+}
+
+.component-item.is-selected .component-name {
+    color: #4fc3f7;
+}
+
+.explorer-search-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px 8px;
+}
+
+.explorer-search-row .metadata-search {
+    flex: 1;
+    margin: 0;
+    min-width: 0;
+}

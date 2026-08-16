@@ -1,0 +1,105 @@
+.metadata-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border-hairline);
+    background: var(--bg-raised);
+    flex-wrap: wrap;
+}
+
+.toolbar-left,
+.toolbar-right {
+    display: flex;
+    gap: 8px;
+}
+
+.primary-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-void);
+    color: var(--accent-signal);
+    border: 1px solid var(--accent-signal);
+    padding: 9px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    transition: background .15s ease, color .15s ease, transform .15s ease;
+}
+
+.primary-btn-prompt {
+    color: var(--accent-signal);
+    opacity: 0.8;
+}
+
+.primary-btn:hover:not(:disabled) {
+    background: var(--accent-signal-dim);
+    transform: translateY(-1px);
+}
+
+.primary-btn.is-loading {
+    color: var(--accent-data);
+    border-color: var(--accent-data);
+}
+
+.primary-btn.is-loading .primary-btn-prompt {
+    color: var(--accent-data);
+    animation: blink-cursor 1s step-end infinite;
+}
+
+@keyframes blink-cursor {
+    50% { opacity: 0; }
+}
+
+.primary-btn:disabled {
+    background: transparent;
+    color: var(--text-faint);
+    border-color: var(--border-hairline);
+    cursor: not-allowed;
+}
+
+.toolbar-right button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border: 1px solid var(--border-hairline);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background .15s ease, color .15s ease;
+}
+
+.toolbar-icon {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1;
+}
+
+.toolbar-right button:hover:not(:disabled) {
+    background: var(--bg-void);
+    color: var(--text-primary);
+}
+
+.toolbar-right button:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.toolbar-danger:hover:not(:disabled) {
+    color: var(--accent-danger) !important;
+    border-color: var(--accent-danger) !important;
+}
+
+@media (max-width: 640px) {
+    .toolbar-right button span:last-child {
+        display: none;
+    }
+}

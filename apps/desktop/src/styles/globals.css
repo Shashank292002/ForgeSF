@@ -1,0 +1,90 @@
+@import "./variables.css";
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(1100px 620px at 8% -6%, rgba(109, 91, 255, 0.18), transparent 55%),
+    radial-gradient(900px 560px at 100% 0%, rgba(34, 211, 238, 0.1), transparent 50%),
+    radial-gradient(1200px 700px at 60% 120%, rgba(236, 72, 153, 0.12), transparent 55%),
+    var(--color-background);
+  background-attachment: fixed;
+  color: var(--color-text);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  color-scheme: dark;
+}
+
+/* Custom scrollbars */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.24);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.42);
+  background-clip: content-box;
+}
+
+/* Shared page chrome used across feature pages */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  animation: page-in var(--motion-smooth) ease;
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

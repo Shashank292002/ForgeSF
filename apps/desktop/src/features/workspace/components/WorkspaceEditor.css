@@ -1,0 +1,50 @@
+.workspace-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #1e1e1e;
+}
+
+.workspace-editor__shell {
+  flex: 1;
+  min-height: 0;
+}
+
+.workspace-editor--empty,
+.workspace-editor--loading {
+  background: #1e1e1e;
+}
+
+.workspace-editor__empty-body,
+.workspace-editor__loading-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--fw-text-secondary);
+  text-align: center;
+  padding: 32px;
+}
+
+.workspace-editor__empty-icon {
+  color: var(--fw-muted);
+  margin-bottom: 6px;
+}
+
+.workspace-editor__empty-body h3 {
+  color: var(--fw-text);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.workspace-editor__empty-body p {
+  font-size: 13px;
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+.workspace-editor__loading-body p {
+  font-size: 13px;
+}

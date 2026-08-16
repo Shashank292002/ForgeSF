@@ -1,0 +1,36 @@
+.workspace-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 24px;
+  padding: 0 10px;
+  flex-shrink: 0;
+  background: var(--fw-bg-statusbar, #007acc);
+  color: #ffffff;
+  font-size: 12px;
+  user-select: none;
+}
+
+.workspace-statusbar__left,
+.workspace-statusbar__right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  overflow: hidden;
+}
+
+.workspace-statusbar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.workspace-statusbar__item.is-error {
+  color: #ffd7d0;
+}
+
+.workspace-statusbar__item .spinning {
+  animation: forge-boot-spin 0.9s linear infinite;
+}

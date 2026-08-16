@@ -1,0 +1,87 @@
+.fw-tabs {
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--fw-bg-header);
+  height: 35px;
+  flex-shrink: 0;
+  scrollbar-width: none;
+}
+
+.fw-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.fw-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 35px;
+  padding: 0 8px 0 10px;
+  font-size: 12.5px;
+  color: var(--fw-text-secondary);
+  background: var(--fw-bg-tab);
+  border-right: 1px solid var(--fw-border);
+  border-top: 1px solid transparent;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  position: relative;
+}
+
+.fw-tab:hover {
+  background: var(--fw-bg-hover);
+}
+
+.fw-tab.is-active {
+  color: var(--fw-text);
+  background: var(--fw-bg-tab-active);
+  border-top-color: var(--fw-brand);
+}
+
+.fw-tab__icon {
+  color: var(--fw-text-secondary);
+  flex-shrink: 0;
+}
+
+.fw-tab__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.fw-tab__close {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+  margin-left: 2px;
+}
+
+.fw-tab:hover .fw-tab__close,
+.fw-tab.is-active .fw-tab__close {
+  color: var(--fw-text-secondary);
+}
+
+.fw-tab__close:hover {
+  background: var(--fw-bg-hover);
+  color: var(--fw-text) !important;
+}
+
+.fw-tab__close-x {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.fw-tab__dirty-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fw-border);
+  display: block;
+}

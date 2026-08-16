@@ -33,17 +33,15 @@ export const navigationGroups: NavGroup[] = [
     ],
   },
   {
-    label: "Org & Metadata",
+    label: "Org",
     items: [
       { label: "Organizations", path: "/organizations", icon: Users },
-      { label: "Metadata", path: "/metadata", icon: Database },
     ],
   },
   {
     label: "Develop",
     items: [
       { label: "Workspace", path: "/workspace", icon: FolderGit2 },
-      { label: "Apex", path: "/apex", icon: CodeXml },
       { label: "Developer Tools", path: "/devtools", icon: TerminalSquare },
       { label: "Deployments", path: "/deployments", icon: Rocket },
     ],

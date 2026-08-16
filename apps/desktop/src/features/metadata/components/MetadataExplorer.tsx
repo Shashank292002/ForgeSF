@@ -4,6 +4,8 @@ interface Props {
   components: string[];
   componentSearch: string;
   selected: string[];
+  loading?: boolean;
+  error?: string | null;
   onSearchChange: (value: string) => void;
   onToggle: (name: string) => void;
 }
@@ -12,6 +14,8 @@ export default function MetadataExplorer({
   components,
   componentSearch,
   selected,
+  loading,
+  error,
   onSearchChange,
   onToggle,
 }: Props) {
@@ -28,10 +32,20 @@ export default function MetadataExplorer({
           value={componentSearch}
           onChange={(e) => onSearchChange(e.target.value)}
         />
+
+        {selected.length > 0 && (
+          <span className="explorer-selected-count">
+            {selected.length} selected
+          </span>
+        )}
       </div>
 
       <div className="component-list">
-        {filtered.length === 0 ? (
+        {error ? (
+          <p className="component-empty component-empty--error">{error}</p>
+        ) : loading ? (
+          <p className="component-empty">Loading components…</p>
+        ) : filtered.length === 0 ? (
           <p className="component-empty">
             {componentSearch
               ? `No components match "${componentSearch}".`

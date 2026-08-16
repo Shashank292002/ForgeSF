@@ -42,5 +42,4 @@ desktop.ini
 *.old
 
 # Local Salesforce development workspaces
-workspace/
 apps/desktop/workspace/

@@ -1,40 +1,68 @@
-import "./WorkspaceToolbar.css";
-import { useOrganizationStore } from "../../../store/orgStore";
+import { Cloud, Loader2, RotateCw, Rocket, Save } from "lucide-react";
+
 import { useWorkspaceStore } from "../store/workspaceStore";
+import { useOrganizationStore } from "../../../store/orgStore";
+
+import "./WorkspaceToolbar.css";
 
 export default function WorkspaceToolbar() {
-    const selectedOrg = useOrganizationStore((state) => state.selectedOrganization);
-    const selectedFile = useWorkspaceStore((state) => state.selectedFile);
-    const saveFile = useWorkspaceStore((state) => state.saveFile);
+  const workspaceName = useWorkspaceStore((state) => state.workspaceName);
+  const dirty = useWorkspaceStore((state) => state.dirty);
+  const deploying = useWorkspaceStore((state) => state.deploying);
+  const refreshFiles = useWorkspaceStore((state) => state.refreshFiles);
+  const saveAll = useWorkspaceStore((state) => state.saveAll);
+  const runDeploy = useWorkspaceStore((state) => state.runDeploy);
 
-    const handleSave = () => {
-        if (selectedFile) {
-            saveFile(selectedFile);
-        }
-    };
+  const organization = useOrganizationStore(
+    (state) => state.selectedOrganization,
+  );
+  const dirtyCount = Object.keys(dirty).length;
 
-    return (
-        <header className="workspace-toolbar">
-            <div className="workspace-info">
-                <div>
-                    <p className="workspace-label">Salesforce DX</p>
-                    <strong>Workspace</strong>
-                </div>
+  return (
+    <div className="workspace-toolbar">
+      <div className="workspace-toolbar__context">
+        <span className="workspace-toolbar__name" title={workspaceName}>
+          {workspaceName || "Workspace"}
+        </span>
+        <span className="workspace-toolbar__separator">/</span>
+        <span className="workspace-toolbar__tag">ForgeSF</span>
+      </div>
 
-                <div className="workspace-meta">
-                    <span className="workspace-pill">{selectedOrg ? selectedOrg.alias : "No Org Connected"}</span>
-                    <span className="workspace-pill muted">Ready for deployment</span>
-                </div>
-            </div>
+      <div className="workspace-toolbar__actions">
+        {dirtyCount > 0 && (
+          <button
+            type="button"
+            className="workspace-toolbar__btn"
+            title="Save All"
+            onClick={() => void saveAll()}
+          >
+            <Save size={14} />
+          </button>
+        )}
+        <button
+          type="button"
+          className="workspace-toolbar__btn"
+          title="Refresh"
+          onClick={() => void refreshFiles()}
+        >
+          <RotateCw size={14} />
+        </button>
 
-            <div className="workspace-actions">
-                <button type="button">Open Org</button>
-                <button type="button">Pull Metadata</button>
-                <button type="button">Deploy</button>
-                <button type="button" disabled={!selectedFile} onClick={handleSave}>
-                    Save
-                </button>
-            </div>
-        </header>
-    );
+        <span className="workspace-toolbar__org" title="Active organization">
+          <Cloud size={13} />
+          {organization ? organization.alias : "No org"}
+        </span>
+
+        <button
+          type="button"
+          className="workspace-toolbar__cta"
+          onClick={() => void runDeploy(organization?.username ?? "", false)}
+          disabled={!organization || deploying}
+        >
+          {deploying ? <Loader2 size={13} className="spinning" /> : <Rocket size={13} />}
+          Deploy
+        </button>
+      </div>
+    </div>
+  );
 }

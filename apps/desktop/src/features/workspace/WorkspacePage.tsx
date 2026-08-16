@@ -1,8 +1,15 @@
-import { useState } from "react";
+import { useEffect, useRef } from "react";
+import {
+  Panel,
+  PanelGroup,
+  PanelResizeHandle,
+  type ImperativePanelHandle,
+} from "react-resizable-panels";
+import { AlertTriangle, Hammer } from "lucide-react";
 
 import "./WorkspacePage.css";
 
-import ActivityBar, { type ActivityId } from "./components/ActivityBar";
+import ActivityBar from "./components/ActivityBar";
 import SideBar from "./components/SideBar";
 import WorkspaceExplorer from "./components/WorkspaceExplorer";
 import WorkspaceSearch from "./components/WorkspaceSearch";
@@ -10,65 +17,154 @@ import SourceControl from "./components/SourceControl";
 import WorkspaceEditor from "./components/WorkspaceEditor";
 import WorkspacePanel from "./components/WorkspacePanel";
 import WorkspaceStatusBar from "./components/WorkspaceStatusBar";
+import WorkspaceToolbar from "./components/WorkspaceToolbar";
 import MetadataPanel from "../metadata/components/MetadataPanel";
 import { useWorkspaceInit } from "./hooks/useWorkspaceInit";
+import { useWorkspaceShortcuts } from "./hooks/useWorkspaceShortcuts";
+import { useWorkspaceStore } from "./store/workspaceStore";
 
-type SidebarId = ActivityId | "metadata";
+const SIDEBAR_TITLES: Record<string, string> = {
+  explorer: "Explorer",
+  search: "Search",
+  scm: "Source Control",
+  metadata: "Metadata",
+  settings: "Settings",
+};
 
 export default function WorkspacePage() {
-  const [view, setView] = useState<SidebarId>("explorer");
-  const [panelOpen, setPanelOpen] = useState(true);
+  const activeView = useWorkspaceStore((state) => state.activeView);
+  const sidebarVisible = useWorkspaceStore((state) => state.sidebarVisible);
+  const setSidebarVisible = useWorkspaceStore((state) => state.setSidebarVisible);
+  const panelOpen = useWorkspaceStore((state) => state.panelOpen);
+  const setPanelOpen = useWorkspaceStore((state) => state.setPanelOpen);
+  const openFolder = useWorkspaceStore((state) => state.openFolder);
+  const initWorkspace = useWorkspaceStore((state) => state.initWorkspace);
 
-  const loaded = useWorkspaceInit();
+  const { loaded, error, booting } = useWorkspaceInit();
+  useWorkspaceShortcuts();
 
-  const sidebarTitle =
-    view === "explorer"
-      ? "Explorer"
-      : view === "search"
-        ? "Search"
-        : view === "scm"
-          ? "Source Control"
-          : view === "metadata"
-            ? "Metadata"
-            : "Settings";
+  const bottomPanelRef = useRef<ImperativePanelHandle>(null);
+
+  // Keep the bottom panel's collapse state in sync with the store.
+  useEffect(() => {
+    const handle = bottomPanelRef.current;
+    if (!handle) return;
+    if (panelOpen) {
+      handle.expand();
+    } else {
+      handle.collapse();
+    }
+  }, [panelOpen]);
+
+  const sectionTitle = SIDEBAR_TITLES[activeView] ?? "Explorer";
 
   return (
     <div className="forge-ws">
-      {!loaded && (
-        <div className="forge-ws__loading">
-          <span className="forge-ws__loading-dot" />
-          <span className="forge-ws__loading-dot" />
-          <span className="forge-ws__loading-dot" />
-          <span>Loading workspace…</span>
+      {booting && !loaded && (
+        <div className="forge-ws__boot">
+          <div className="forge-ws__boot-content">
+            <span className="forge-ws__boot-mark">
+              <Hammer size={22} />
+            </span>
+            <span className="forge-ws__boot-spinner" />
+            <span className="forge-ws__boot-hint">Preparing workspace…</span>
+          </div>
         </div>
       )}
 
-      <ActivityBar active={view} onSelect={(v) => setView(v as SidebarId)} />
+      {error && !loaded && (
+        <div className="forge-ws__error">
+          <div className="forge-ws__error-card">
+            <span className="forge-ws__error-icon">
+              <AlertTriangle size={26} />
+            </span>
+            <h2>Unable to load workspace</h2>
+            <p>{error}</p>
+            <div className="forge-ws__error-actions">
+              <button
+                className="fw-btn fw-btn--primary"
+                onClick={() => void openFolder()}
+              >
+                Open Folder
+              </button>
+              <button
+                className="fw-btn"
+                onClick={() => void initWorkspace()}
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="forge-ws__main">
-        <SideBar
-          title={sidebarTitle}
-          visible={true}
-          onToggle={() => setView("explorer")}
-        >
-          {view === "explorer" && <WorkspaceExplorer />}
-          {view === "search" && <WorkspaceSearch />}
-          {view === "scm" && <SourceControl />}
-          {view === "metadata" && <MetadataPanel />}
-          {view === "settings" && (
-            <div className="forge-ws__placeholder">
-              Settings view coming soon.
-            </div>
-          )}
-        </SideBar>
+        <ActivityBar />
 
-        <div className="forge-ws__center">
-          <WorkspaceEditor />
-          <WorkspacePanel
-            open={panelOpen}
-            onToggle={() => setPanelOpen((o) => !o)}
-          />
-        </div>
+        <PanelGroup
+          className="forge-ws__panels"
+          direction="horizontal"
+          autoSaveId="forge-ws-horizontal"
+        >
+          {sidebarVisible && (
+            <>
+              <Panel
+                id="forge-ws-sidebar"
+                order={1}
+                defaultSize={26}
+                minSize={16}
+                maxSize={45}
+              >
+                <SideBar
+                  title={sectionTitle}
+                  onCollapse={() => setSidebarVisible(false)}
+                >
+                  {activeView === "explorer" && <WorkspaceExplorer />}
+                  {activeView === "search" && <WorkspaceSearch />}
+                  {activeView === "scm" && <SourceControl />}
+                  {activeView === "metadata" && <MetadataPanel />}
+                  {activeView === "settings" && (
+                    <div className="forge-ws__placeholder">
+                      Workspace settings are coming soon.
+                    </div>
+                  )}
+                </SideBar>
+              </Panel>
+
+              <PanelResizeHandle className="fw-resize-vertical" />
+            </>
+          )}
+
+          <Panel id="forge-ws-center" order={2} minSize={30}>
+            <PanelGroup
+              className="forge-ws__center"
+              direction="vertical"
+              autoSaveId="forge-ws-vertical"
+            >
+              <Panel id="forge-ws-editor" order={1} defaultSize={74} minSize={25}>
+                <WorkspaceToolbar />
+                <WorkspaceEditor />
+              </Panel>
+
+              <PanelResizeHandle className="fw-resize-horizontal" />
+
+              <Panel
+                id="forge-ws-panel"
+                ref={bottomPanelRef}
+                order={2}
+                defaultSize={26}
+                minSize={8}
+                collapsible
+                collapsedSize={0}
+              >
+                <WorkspacePanel
+                  open={panelOpen}
+                  onToggle={() => setPanelOpen(!panelOpen)}
+                />
+              </Panel>
+            </PanelGroup>
+          </Panel>
+        </PanelGroup>
       </div>
 
       <WorkspaceStatusBar />

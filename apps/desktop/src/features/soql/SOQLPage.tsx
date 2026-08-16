@@ -1,6 +1,18 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { TerminalSquare, Play, RotateCcw, Loader2 } from "lucide-react";
+import {
+  TerminalSquare,
+  Play,
+  RotateCcw,
+  Loader2,
+  Copy,
+  Check,
+  Trash2,
+  Table2,
+  FileJson,
+  History,
+  X,
+} from "lucide-react";
 
 import { useOrganizationStore } from "../../store/orgStore";
 import { runQuery, runCommand } from "../../services/tauri";
@@ -10,6 +22,7 @@ import OrgGuard from "../../components/OrgGuard/OrgGuard";
 import "./SOQLPage.css";
 
 type Tab = "soql" | "sosl" | "apex" | "cli";
+type View = "table" | "raw";
 
 const SNIPPETS: Record<Tab, string[]> = {
   soql: [
@@ -23,10 +36,18 @@ const SNIPPETS: Record<Tab, string[]> = {
   cli: ["org display --json"],
 };
 
-function tryParseRecords(output: string) {
+const TAB_LABELS: Record<Tab, string> = {
+  soql: "SOQL",
+  sosl: "SOSL",
+  apex: "Anonymous Apex",
+  cli: "CLI",
+};
+
+function tryParseRecords(output: string): Record<string, unknown>[] | null {
   try {
     const parsed = JSON.parse(output);
     if (parsed?.result?.records) return parsed.result.records;
+    if (parsed?.result?.searchRecords) return parsed.result.searchRecords;
     if (parsed?.records) return parsed.records;
     if (Array.isArray(parsed)) return parsed;
   } catch {
@@ -35,19 +56,16 @@ function tryParseRecords(output: string) {
   return null;
 }
 
-const TAB_LABELS: Record<Tab, string> = {
-  soql: "SOQL",
-  sosl: "SOSL",
-  apex: "Anonymous Apex",
-  cli: "CLI",
-};
-
 export default function SOQLPage() {
   const org = useOrganizationStore((s) => s.selectedOrganization);
   const [tab, setTab] = useState<Tab>("soql");
   const [input, setInput] = useState<string>(SNIPPETS.soql[0]);
   const [output, setOutput] = useState<string>("");
   const [running, setRunning] = useState(false);
+  const [view, setView] = useState<View>("table");
+  const [copied, setCopied] = useState(false);
+  const [executeMs, setExecuteMs] = useState<number | null>(null);
+
   const [history, setHistory] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem("devtools.history") || "[]");
@@ -56,84 +74,139 @@ export default function SOQLPage() {
     }
   });
 
+  const copyTimer = useRef<number | null>(null);
+
   const records = useMemo(() => tryParseRecords(output), [output]);
+  const rowCount = records?.length ?? 0;
 
   function pushHistory(q: string) {
-    const h = [q, ...history].slice(0, 50);
-    setHistory(h);
-    localStorage.setItem("devtools.history", JSON.stringify(h));
+    const trimmed = q.trim();
+    if (!trimmed) return;
+    setHistory((prev) => {
+      const next = [trimmed, ...prev.filter((h) => h !== trimmed)].slice(0, 50);
+      localStorage.setItem("devtools.history", JSON.stringify(next));
+      return next;
+    });
   }
 
-  async function executeSOQL() {
-    if (!org) return;
+  function clearHistory() {
+    setHistory([]);
+    localStorage.removeItem("devtools.history");
+  }
+
+  function removeHistory(index: number) {
+    setHistory((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      localStorage.setItem("devtools.history", JSON.stringify(next));
+      return next;
+    });
+  }
+
+  async function runWith(fn: () => Promise<string>, historyValue: string) {
+    if (!org || running) return;
+
     setRunning(true);
     setOutput("");
+    setCopied(false);
+    setExecuteMs(null);
+
+    const started = performance.now();
+
     try {
-      const res = await runQuery(org.username, input);
+      const res = await fn();
       setOutput(res);
-      pushHistory(input);
+      if (historyValue) pushHistory(historyValue.trim());
     } catch (err: unknown) {
       setOutput(err instanceof Error ? err.message : String(err));
     } finally {
       setRunning(false);
+      setExecuteMs(Math.round(performance.now() - started));
     }
   }
+const runForTab = (override: string) => {
+    if (tab === "soql")
+      void runWith(async () => {
+        if (!org) return "";
+        return runQuery(org.username, override.trim());
+      }, override);
+    else if (tab === "sosl")
+      void runWith(async () => {
+        if (!org) return "";
+        return runCommand(
+          ["data", "search", "--target-org", org.username, "--query", override.trim(), "--json"],
+          undefined
+        );
+      }, override);
+    else if (tab === "apex")
+      void runWith(async () => {
+        if (!org) return "";
+        return runCommand(
+          ["apex", "execute", "--target-org", org.username, "--json"],
+          override
+        );
+      }, override);
+    else
+      void runWith(async () => {
+        const parts = override.match(/(?:[^"\s]+|"[^"]*")+/g) || [];
+        const args = parts.map((p) => p.replace(/^"|"$/g, ""));
+        return runCommand(args, undefined);
+      }, override);
+  };
 
-  async function executeSOSL() {
-    if (!org) return;
-    setRunning(true);
+  const run = () => runForTab(input);
+
+  function handleTabChange(next: Tab) {
+    setTab(next);
     setOutput("");
-    try {
-      const res = await runQuery(org.username, input);
-      setOutput(res);
-      pushHistory(input);
-    } catch (err: unknown) {
-      setOutput(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRunning(false);
-    }
+    setInput(SNIPPETS[next][0]);
+    setView("table");
+    setExecuteMs(null);
   }
 
-  async function executeApex() {
-    if (!org) return;
-    setRunning(true);
+  function loadFromHistory(item: string) {
+    setInput(item);
     setOutput("");
+  }
+
+  function runFromHistory(item: string) {
+    setInput(item);
+    runForTab(item);
+  }
+
+  async function copyOutput() {
+    if (!output) return;
     try {
-      const args = ["apex", "execute", "--target-org", org.username, "--json"];
-      const res = await runCommand(args, input);
-      setOutput(res);
-    } catch (err: unknown) {
-      setOutput(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRunning(false);
+      await navigator.clipboard.writeText(output);
+      setCopied(true);
+      if (copyTimer.current) window.clearTimeout(copyTimer.current);
+      copyTimer.current = window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard may be unavailable in some environments; ignore
     }
   }
 
-  async function executeCLI() {
-    if (!org) return;
-    setRunning(true);
-    setOutput("");
+  function formatOutput() {
     try {
-      const parts = input.match(/(?:[^"\s]+|"[^"]*")+/g) || [];
-      const args = parts.map((p) => p.replace(/^"|"$/g, ""));
-      const res = await runCommand(args, undefined);
-      setOutput(res);
-    } catch (err: unknown) {
-      setOutput(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRunning(false);
+      setOutput(JSON.stringify(JSON.parse(output), null, 2));
+    } catch {
+      // not valid JSON; leave as-is
     }
   }
 
-  function run() {
-    if (tab === "soql") void executeSOQL();
-    else if (tab === "sosl") void executeSOSL();
-    else if (tab === "apex") void executeApex();
-    else void executeCLI();
+  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      run();
+    }
   }
+
+  const headers = useMemo(
+    () => (records ? Object.keys(records[0] || {}) : []),
+    [records]
+  );
 
   return (
-    <OrgGuard>
+<OrgGuard>
       <div className="soql-page">
         <div className="soql-header">
           <div className="soql-titleRow">
@@ -143,7 +216,8 @@ export default function SOQLPage() {
             <div>
               <h1>Developer Tools</h1>
               <p className="soql-subtitle">
-                Query and execute against your connected org.
+                Query, run Apex, and execute Salesforce CLI commands against your
+                connected org.
               </p>
             </div>
           </div>
@@ -160,107 +234,233 @@ export default function SOQLPage() {
             <button
               key={t}
               className={`soql-tab-button ${tab === t ? "active" : ""}`}
-              onClick={() => {
-                setTab(t);
-                setInput(SNIPPETS[t][0]);
-              }}
+              onClick={() => handleTabChange(t)}
             >
               {TAB_LABELS[t]}
             </button>
           ))}
         </div>
 
-        <PanelGroup direction="vertical" className="soql-panel-group">
-          <Panel defaultSize={48} minSize={20}>
-            <div className="soql-panel-content">
-              <textarea
-                className="soql-input"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                spellCheck={false}
-              />
+        <div className="soql-layout">
+          <PanelGroup direction="horizontal" className="soql-editor-group">
+            <Panel defaultSize={72} minSize={50}>
+              <PanelGroup direction="vertical" className="soql-panel-group">
+                <Panel defaultSize={48} minSize={20}>
+                  <div className="soql-panel-content">
+                    <textarea
+                      className="soql-input"
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={onKeyDown}
+                      spellCheck={false}
+                      placeholder="Enter a query, command, or snippet…"
+                    />
 
-              <div className="soql-actions">
-                <Button
-                  variant="gradient"
-                  leftIcon={running ? <Loader2 size={15} /> : <Play size={15} />}
-                  onClick={run}
-                  loading={running}
-                  disabled={!org}
-                >
-                  {running ? "Running..." : `Execute ${TAB_LABELS[tab]}`}
-                </Button>
+                    <div className="soql-actions">
+                      <Button
+                        variant="gradient"
+                        leftIcon={running ? <Loader2 size={15} /> : <Play size={15} />}
+                        onClick={run}
+                        loading={running}
+                        disabled={!org}
+                      >
+                        {running ? "Running..." : `Execute ${TAB_LABELS[tab]}`}
+                      </Button>
 
-                <Button
-                  variant="secondary"
-                  leftIcon={<RotateCcw size={15} />}
-                  onClick={() => setInput(SNIPPETS[tab][0])}
-                >
-                  Reset Snippet
-                </Button>
+                      <Button
+                        variant="secondary"
+                        leftIcon={<RotateCcw size={15} />}
+                        onClick={() => setInput(SNIPPETS[tab][0])}
+                      >
+                        Reset Snippet
+                      </Button>
 
-                <select
-                  className="soql-snippets"
-                  value=""
-                  onChange={(e) => {
-                    if (e.target.value) setInput(e.target.value);
-                  }}
-                >
-                  <option value="">Quick snippets</option>
-                  {SNIPPETS[tab].map((s) => (
-                    <option key={s} value={s}>
-                      {s.split(/[(\n]/)[0]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </Panel>
-
-          <PanelResizeHandle className="soql-resize-handle" />
-
-          <Panel>
-            <div className="soql-output-panel">
-              <div className="soql-output-header">
-                <strong>Output</strong>
-                <Badge tone={running ? "warning" : "default"} dot>
-                  {running ? "Running" : "Idle"}
-                </Badge>
-              </div>
-
-              {records ? (
-                <div className="soql-records">
-                  <table className="soql-record-table">
-                    <thead>
-                      <tr>
-                        {Object.keys(records[0] || {}).map((k) => (
-                          <th key={k}>{k}</th>
+                      <select
+                        className="soql-snippets"
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) setInput(e.target.value);
+                        }}
+                      >
+                        <option value="">Quick snippets</option>
+                        {SNIPPETS[tab].map((s) => (
+                          <option key={s} value={s}>
+                            {s.split(/[(\n]/)[0]}
+                          </option>
                         ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {records.map((r: Record<string, unknown>, i: number) => (
-                        <tr key={i}>
-                          {Object.keys(records[0] || {}).map((k) => (
-                            <td key={k}>
-                              {String((r as Record<string, unknown>)[k] ?? "")}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </select>
+
+                      <span className="soql-shortcut">
+                        <kbd>Ctrl</kbd>+<kbd>↵</kbd> to run
+                      </span>
+                    </div>
+                  </div>
+                </Panel>
+
+                <PanelResizeHandle className="soql-resize-handle" />
+
+                <Panel>
+                  <div className="soql-output-panel">
+<div className="soql-output-header">
+                      <div className="soql-output-title">
+                        <strong>Output</strong>
+                        <Badge tone={running ? "warning" : "default"} dot>
+                          {running
+                            ? "Running"
+                            : rowCount > 0 && records
+                            ? `${rowCount} row${rowCount === 1 ? "" : "s"}`
+                            : executeMs
+                            ? `${executeMs}ms`
+                            : "Idle"}
+                        </Badge>
+                      </div>
+
+                      <div className="soql-output-tools">
+                        {records && (
+                          <div className="soql-view-toggle">
+                            <button
+                              className={view === "table" ? "active" : ""}
+                              onClick={() => setView("table")}
+                              title="Table view"
+                            >
+                              <Table2 size={14} /> Table
+                            </button>
+                            <button
+                              className={view === "raw" ? "active" : ""}
+                              onClick={() => setView("raw")}
+                              title="Raw view"
+                            >
+                              <FileJson size={14} /> Raw
+                            </button>
+                          </div>
+                        )}
+
+                        {output && (
+                          <>
+                            <button
+                              className="soql-format-btn"
+                              onClick={formatOutput}
+                              title="Format JSON"
+                            >
+                              {"{}"}
+                            </button>
+                            <button
+                              className="soql-copy-btn"
+                              onClick={copyOutput}
+                              title="Copy output"
+                            >
+                              {copied ? <Check size={14} /> : <Copy size={14} />}
+                              {copied ? "Copied" : "Copy"}
+                            </button>
+                            <button
+                              className="soql-clear-btn"
+                              onClick={() => setOutput("")}
+                              title="Clear output"
+                            >
+                              <X size={14} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {running ? (
+                      <pre className="soql-output-pre soql-output-muted">
+                        Running {TAB_LABELS[tab]}...
+                      </pre>
+                    ) : output ? (
+                      records && view === "table" ? (
+                        <div className="soql-records">
+                          <table className="soql-record-table">
+                            <thead>
+                              <tr>
+                                {headers.map((k) => (
+                                  <th key={k}>{k}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {records.map((r, i) => (
+                                <tr key={i}>
+                                  {headers.map((k) => (
+                                    <td key={k}>
+                                      {String((r as Record<string, unknown>)[k] ?? "")}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <pre className="soql-output-pre">{output}</pre>
+                      )
+                    ) : (
+                      <pre className="soql-output-pre soql-output-muted">
+                        No output yet. Run a query to see results.
+                      </pre>
+                    )}
+                  </div>
+                </Panel>
+              </PanelGroup>
+            </Panel>
+<PanelResizeHandle className="soql-h-resize-handle" />
+
+            <Panel defaultSize={28} minSize={18} collapsible>
+              <div className="soql-history-panel">
+                <div className="soql-history-head">
+                  <span className="soql-history-title">
+                    <History size={14} /> History
+                  </span>
+                  <div className="soql-history-actions">
+                    <button
+                      onClick={clearHistory}
+                      disabled={history.length === 0}
+                      title="Clear history"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
-              ) : (
-                <pre className="soql-output-pre">
-                  {output || "No output yet. Run a query to see results."}
-                </pre>
-              )}
-            </div>
-          </Panel>
-        </PanelGroup>
+
+                <div className="soql-history-list">
+                  {history.length === 0 ? (
+                    <p className="soql-history-empty">
+                      No history yet. Executed queries will appear here.
+                    </p>
+                  ) : (
+                    history.map((item, i) => (
+                      <div className="soql-history-item" key={`${i}-${item}`}>
+                        <button
+                          className="soql-history-load"
+                          onClick={() => loadFromHistory(item)}
+                          title="Load into editor"
+                        >
+                          {item}
+                        </button>
+                        <button
+                          className="soql-history-run"
+                          onClick={() => runFromHistory(item)}
+                          title="Run again"
+                        >
+                          <Play size={13} />
+                        </button>
+                        <button
+                          className="soql-history-x"
+                          onClick={() => removeHistory(i)}
+                          title="Remove"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </Panel>
+          </PanelGroup>
+        </div>
       </div>
     </OrgGuard>
   );
 }
-

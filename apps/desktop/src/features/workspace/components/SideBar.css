@@ -1,0 +1,69 @@
+.forge-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  background: var(--fw-bg-sidebar);
+  color: var(--fw-text);
+}
+
+.forge-sidebar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  padding: 0 6px 0 20px;
+  flex-shrink: 0;
+}
+
+.forge-sidebar__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fw-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.forge-sidebar__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.forge-sidebar__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fw-muted);
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.forge-sidebar__icon-btn:hover {
+  background: var(--fw-bg-hover);
+  color: var(--fw-text);
+}
+
+.forge-sidebar__content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.forge-sidebar__content > * {
+  height: 100%;
+}
+
+.forge-ws__placeholder {
+  padding: 18px;
+  color: var(--fw-muted);
+  font-size: 12.5px;
+}

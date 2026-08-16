@@ -4,12 +4,18 @@ interface Props {
     selectedCount: number;
     loading: boolean;
     onRetrieve: () => void;
+    onRefresh?: () => void;
+    onClear?: () => void;
+    onOpen?: () => void;
 }
 
 export default function MetadataToolbar({
     selectedCount,
     loading,
     onRetrieve,
+    onRefresh,
+    onClear,
+    onOpen,
 }: Props) {
 
     return (
@@ -39,24 +45,24 @@ export default function MetadataToolbar({
 
             <div className="toolbar-right">
 
-                <button disabled title="Open">
+                <button onClick={onOpen} title="Open in Workspace">
                     <span className="toolbar-icon">&#8862;</span> Open
                 </button>
 
-                <button disabled title="Refresh">
+                <button
+                    onClick={onRefresh}
+                    disabled={loading}
+                    title="Refresh components"
+                >
                     <span className="toolbar-icon">&#8635;</span> Refresh
                 </button>
 
-                <button disabled title="Deploy">
-                    <span className="toolbar-icon">&#8593;</span> Deploy
-                </button>
-
-                <button disabled title="Compare">
-                    <span className="toolbar-icon">&#8646;</span> Compare
-                </button>
-
-                <button disabled title="Delete" className="toolbar-danger">
-                    <span className="toolbar-icon">&#215;</span> Delete
+                <button
+                    onClick={onClear}
+                    disabled={selectedCount === 0}
+                    title="Clear selection"
+                >
+                    <span className="toolbar-icon">&#215;</span> Clear
                 </button>
 
             </div>

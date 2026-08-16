@@ -1,7 +1,7 @@
 # ForgeSF
 
 <p align="center">
-  <img src="assets/logo.png" alt="ForgeSF Logo" width="180"/>
+  <img src="apps/desktop/public/favicon.svg" alt="ForgeSF Logo" width="180"/>
 </p>
 
 <h1 align="center">ForgeSF</h1>

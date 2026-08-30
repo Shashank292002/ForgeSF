@@ -1,0 +1,175 @@
+.wrapper {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.headerLeft h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.progress {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: var(--color-surface-elevated);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.runBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--gradient-brand);
+  color: white;
+  border: none;
+  padding: 8px 18px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(109,91,255,0.3);
+  transition: all var(--motion-fast);
+}
+
+.runBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(109,91,255,0.4);
+}
+
+.runBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.runBtnRunning {
+  background: linear-gradient(135deg, #4a3fcc, #7a3dcc);
+}
+
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Progress Bar */
+.progressBar {
+  height: 3px;
+  background: var(--color-surface-elevated);
+  border-radius: 999px;
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--gradient-brand);
+  border-radius: 999px;
+  transition: width var(--motion-smooth) cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Steps */
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.step {
+  display: flex;
+  gap: 14px;
+  padding: 8px 0;
+  position: relative;
+}
+
+.stepConnector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 28px;
+  flex-shrink: 0;
+}
+
+.stepDot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-elevated);
+  border: 2px solid var(--color-border);
+  z-index: 1;
+  transition: all var(--motion-medium);
+}
+
+.stepLine {
+  width: 2px;
+  flex: 1;
+  min-height: 24px;
+  background: var(--color-border);
+  margin: 4px 0;
+}
+
+/* Statuses */
+.pending .stepDot { border-color: var(--color-border); color: var(--color-text-muted); }
+.pending .stepLabel { color: var(--color-text-muted); }
+.active .stepDot { border-color: var(--color-primary); background: var(--color-primary-soft); color: var(--color-primary); }
+.active .stepLabel { color: var(--color-primary); }
+.success .stepDot { border-color: var(--color-success); background: var(--color-success-soft); color: var(--color-success); }
+.success .stepLabel { color: var(--color-success); }
+.failed .stepDot { border-color: var(--color-error); background: var(--color-error-soft); color: var(--color-error); }
+.failed .stepLabel { color: var(--color-error); }
+.skipped .stepDot { border-color: var(--color-text-muted); background: var(--color-surface-hover); color: var(--color-text-muted); }
+
+.stepContent {
+  flex: 1;
+  padding-top: 4px;
+  min-width: 0;
+}
+
+.stepHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.stepLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  transition: color var(--motion-fast);
+}
+
+.stepDuration {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.stepDesc {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}

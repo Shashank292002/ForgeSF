@@ -11,9 +11,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 38px;
-  padding: 0 6px 0 20px;
+  height: 36px;
+  padding: 0 4px 0 12px;
   flex-shrink: 0;
+  border-bottom: 1px solid var(--fw-border-soft);
 }
 
 .forge-sidebar__title {

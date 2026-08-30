@@ -4,6 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde::{Deserialize, Serialize};
+use tauri::Emitter;
 use tauri::Manager;
 
 /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -505,6 +506,267 @@ pub fn retrieve_metadata(
             String::from_utf8_lossy(&output.stderr)
         ))
     }
+}
+
+/// One metadata type / group included in a retrieve batch, and its outcome.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrieveResultItem {
+    pub kind: String,
+    pub status: String, // "completed" | "failed"
+    pub retrieved: u32,
+    pub message: Option<String>,
+}
+
+/// Aggregated outcome of a retrieve run (with per-type detail).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrieveResult {
+    pub success: bool,
+    pub summary: String,
+    pub items: Vec<RetrieveResultItem>,
+    pub total: u32,
+    pub succeeded: u32,
+    pub failed: u32,
+}
+
+/// Real-time payload pushed to the frontend while a retrieve is in flight.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrieveProgressEvent {
+    pub phase: String,          // "item" | "complete"
+    pub index: usize,
+    pub total: usize,
+    pub kind: Option<String>,   // metadata type being processed
+    pub status: Option<String>, // running | completed | failed
+    pub retrieved: u32,
+    pub succeeded: u32,
+    pub failed: u32,
+    pub message: Option<String>,
+}
+
+/// Splits a CLI member string (`ApexClass`, `ApexClass:Foo`, `ApexClass:*`)
+/// into `(metadataType, member)` so we can group a batch by type.
+fn split_metadata_member(member: &str) -> (String, String) {
+    match member.split_once(':') {
+        Some((kind, _rest)) => (kind.to_string(), "*".to_string()),
+        None => (member.to_string(), "*".to_string()),
+    }
+}
+
+/// Extracts the number of retrieved files from an `sf` JSON result payload.
+fn metadata_file_count(stdout: &[u8]) -> u32 {
+    match serde_json::from_slice::<serde_json::Value>(stdout) {
+        Ok(json) => json["result"]["files"]
+            .as_array()
+            .map(|files| files.len() as u32)
+            .unwrap_or(0),
+        Err(_) => 0,
+    }
+}
+
+/// Determines whether an `sf` JSON payload represents success vs. failure.
+fn metadata_json_succeeded(stdout: &[u8]) -> bool {
+    match serde_json::from_slice::<serde_json::Value>(stdout) {
+        Ok(json) => {
+            let status = json["status"].as_i64().unwrap_or(0);
+            let result_status = json["result"]["status"]
+                .as_str()
+                .map(|s| s.eq_ignore_ascii_case("failed"))
+                .unwrap_or(false);
+            status == 0 && !result_status
+        }
+        Err(_) => true,
+    }
+}
+
+/// Retrieve one group of members belonging to a single metadata type and
+/// report back how many files were written.
+fn retrieve_type_group(
+    sf: &str,
+    workspace: &Path,
+    username: &str,
+    kind: &str,
+    members: &[String],
+) -> Result<u32, String> {
+    let mut command = Command::new(sf);
+    command.args([
+        "project",
+        "retrieve",
+        "start",
+        "--target-org",
+        username,
+        "--json",
+        "--wait",
+        "20",
+    ]);
+    for member in members {
+        command.arg("--metadata");
+        command.arg(member);
+    }
+    command.current_dir(workspace);
+
+    let output = command.output().map_err(|error| error.to_string())?;
+
+    if output.status.success() && metadata_json_succeeded(&output.stdout) {
+        Ok(metadata_file_count(&output.stdout))
+    } else if output.status.success() {
+        Err(format!(
+            "Retrieve failed for {kind}. STDOUT:\n{}",
+            String::from_utf8_lossy(&output.stdout)
+        ))
+    } else {
+        Err(format!(
+            "Retrieve failed for {kind}.\nSTDERR:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
+/// Retrieves the requested metadata from an org, streaming live progress
+/// events so the UI can render a meaningful progress experience instead of a
+/// blocking spinner. Returns a structured result with per-type outcomes for
+/// the results summary and failed-retry flow.
+#[tauri::command]
+pub async fn retrieve_metadata_progress(
+    app: tauri::AppHandle,
+    username: String,
+    metadata: Vec<String>,
+) -> Result<RetrieveResult, String> {
+    let workspace = get_workspace(&app)?;
+    let sf = find_sf_executable()?;
+
+    // Group members by metadata type so each type becomes an isolated,
+    // observable unit of progress.
+    let mut order: Vec<String> = Vec::new();
+    let mut groups: Vec<Vec<String>> = Vec::new();
+    let mut index_by_kind: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for member in &metadata {
+        let trimmed = member.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let (kind, _) = split_metadata_member(trimmed);
+        let idx = match index_by_kind.get(&kind) {
+            Some(&existing) => existing,
+            None => {
+                let new_index = order.len();
+                order.push(kind.clone());
+                groups.push(Vec::new());
+                index_by_kind.insert(kind, new_index);
+                new_index
+            }
+        };
+        groups[idx].push(trimmed.to_string());
+    }
+
+    let total = order.len();
+    let mut index = 0usize;
+    let mut succeeded = 0u32;
+    let mut failed = 0u32;
+    let mut items: Vec<RetrieveResultItem> = Vec::new();
+
+    let emit = |payload: &RetrieveProgressEvent| -> Result<(), String> {
+        app.emit("retrieve_progress", payload)
+            .map_err(|error| error.to_string())
+    };
+
+    for (kind, members) in order.into_iter().zip(groups) {
+        index += 1;
+
+        emit(&RetrieveProgressEvent {
+            phase: "item".to_string(),
+            index,
+            total,
+            kind: Some(kind.clone()),
+            status: Some("running".to_string()),
+            retrieved: 0,
+            succeeded,
+            failed,
+            message: Some(format!("Retrieving {kind}…")),
+        })?;
+
+        match retrieve_type_group(&sf, &workspace, &username, &kind, &members) {
+            Ok(retrieved) => {
+                succeeded += 1;
+                items.push(RetrieveResultItem {
+                    kind: kind.clone(),
+                    status: "completed".to_string(),
+                    message: Some(format!("{retrieved} item(s) retrieved")),
+                    retrieved,
+                });
+                emit(&RetrieveProgressEvent {
+                    phase: "item".to_string(),
+                    kind: Some(kind.clone()),
+                    status: Some("completed".to_string()),
+                    index: 0,
+                    total: 0,
+                    retrieved,
+                    succeeded,
+                    failed,
+                    message: Some(format!("Retrieved {retrieved} item(s)")),
+                })?;
+            }
+            Err(error) => {
+                failed += 1;
+                items.push(RetrieveResultItem {
+                    kind: kind.clone(),
+                    status: "failed".to_string(),
+                    retrieved: 0,
+                    message: Some(error.clone()),
+                });
+                emit(&RetrieveProgressEvent {
+                    phase: "item".to_string(),
+                    kind: Some(kind.clone()),
+                    status: Some("failed".to_string()),
+                    index: 0,
+                    total: 0,
+                    retrieved: 0,
+                    succeeded,
+                    failed,
+                    message: Some(error),
+                })?;
+            }
+        }
+    }
+
+    let success = failed == 0;
+    let summary = if success {
+        format!(
+            "Retrieved metadata from {} type(s) successfully.",
+            succeeded,
+        )
+    } else {
+        format!(
+            "Finished with {failed} failed type(s).",
+        )
+    };
+
+    emit(&RetrieveProgressEvent {
+        phase: "complete".to_string(),
+        index: total,
+        total,
+        kind: None,
+        status: Some(if success {
+            "complete".to_string()
+        } else {
+            "complete-with-errors".to_string()
+        }),
+        retrieved: items.iter().map(|item| item.retrieved).sum(),
+        succeeded,
+        failed,
+        message: Some(summary.clone()),
+    })?;
+
+    Ok(RetrieveResult {
+        success,
+        summary,
+        items,
+        total: total as u32,
+        succeeded,
+        failed,
+    })
 }
 
 #[tauri::command]

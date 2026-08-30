@@ -1,10 +1,13 @@
+import { useRef, useState } from "react";
+import type { editor } from "monaco-editor";
 import Editor from "@monaco-editor/react";
-import { FileText } from "lucide-react";
+import { FileText, Search, Sparkles } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { languageForPath } from "../lib/editorLanguage";
 import { registerApexLanguage, defineForgeTheme } from "../lib/apexLanguage";
 import type { Monaco } from "../lib/monaco";
+import { getBaseName } from "../lib/workspaceUtils";
 import WorkspaceTabs from "./WorkspaceTabs";
 
 import "./WorkspaceEditor.css";
@@ -25,25 +28,51 @@ export default function WorkspaceEditor() {
   const updateFileContent = useWorkspaceStore((state) => state.updateFileContent);
   const setCursorPosition = useWorkspaceStore((state) => state.setCursorPosition);
   const openFolder = useWorkspaceStore((state) => state.openFolder);
+  const openRetrieve = useWorkspaceStore((state) => state.openRetrieve);
+
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const [wrap, setWrap] = useState(false);
+  const [minimap, setMinimap] = useState(false);
+
+  const runAction = (id: string) => {
+    void editorRef.current?.getAction(id)?.run();
+  };
+
+  const handleMount = (instance: editor.IStandaloneCodeEditor) => {
+    editorRef.current = instance;
+    instance.onDidChangeCursorPosition((event) => {
+      setCursorPosition({
+        line: event.position.lineNumber,
+        column: event.position.column,
+      });
+    });
+  };
 
   if (!file) {
     return (
       <div className="workspace-editor workspace-editor--empty">
         <WorkspaceTabs />
         <div className="workspace-editor__empty-body">
-          <FileText size={40} className="workspace-editor__empty-icon" />
-          <h3>Choose a file to start editing</h3>
+          <span className="workspace-editor__empty-mark">
+            <FileText size={34} strokeWidth={1.5} />
+          </span>
+          <h3>Edit Salesforce source</h3>
           <p>
-            Open a class, component, or metadata file from the explorer — or
-            open a folder to get started.
+            Open a file from the explorer, or retrieve metadata from your org to
+            bring classes, triggers, LWC, objects and more into the workspace.
           </p>
-          <button
-            type="button"
-            className="fw-btn fw-btn--primary"
-            onClick={() => void openFolder()}
-          >
-            Open Folder
-          </button>
+          <div className="workspace-editor__empty-actions">
+            <button
+              type="button"
+              className="fw-btn fw-btn--primary"
+              onClick={openRetrieve}
+            >
+              Retrieve Metadata
+            </button>
+            <button type="button" className="fw-btn" onClick={() => void openFolder()}>
+              Open Folder
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -55,7 +84,7 @@ export default function WorkspaceEditor() {
         <WorkspaceTabs />
         <div className="workspace-editor__loading-body">
           <span className="forge-ws__boot-spinner" />
-          <p>Loading {file.split("/").pop()}…</p>
+          <p>Loading {getBaseName(file)}…</p>
         </div>
       </div>
     );
@@ -64,6 +93,50 @@ export default function WorkspaceEditor() {
   return (
     <div className="workspace-editor">
       <WorkspaceTabs />
+
+      <div className="workspace-editor__chrome">
+        <div className="workspace-editor__breadcrumbs" title={file}>
+          <span className="workspace-editor__lang">{languageForPath(file).toUpperCase()}</span>
+          <span className="workspace-editor__sep">/</span>
+          <span className="workspace-editor__file">{getBaseName(file)}</span>
+        </div>
+
+        <div className="workspace-editor__actions">
+          <button
+            type="button"
+            className="workspace-editor__action"
+            title="Format Document (Shift+Alt+F)"
+            onClick={() => runAction("editor.action.formatDocument")}
+          >
+            <Sparkles size={13} /> Format
+          </button>
+          <button
+            type="button"
+            className="workspace-editor__action"
+            title="Find / Replace (Ctrl+F)"
+            onClick={() => runAction("actions.find")}
+          >
+            <Search size={13} /> Find
+          </button>
+          <button
+            type="button"
+            className={`workspace-editor__action ${wrap ? "is-active" : ""}`}
+            title="Toggle word wrap"
+            onClick={() => setWrap((value) => !value)}
+          >
+            Wrap
+          </button>
+          <button
+            type="button"
+            className={`workspace-editor__action ${minimap ? "is-active" : ""}`}
+            title="Toggle minimap"
+            onClick={() => setMinimap((value) => !value)}
+          >
+            Minimap
+          </button>
+        </div>
+      </div>
+
       <div className="workspace-editor__shell">
         <Editor
           height="100%"
@@ -73,21 +146,14 @@ export default function WorkspaceEditor() {
           value={content}
           beforeMount={handleBeforeMount}
           onChange={(value) => updateFileContent(file, value ?? "")}
-          onMount={(editor) => {
-            editor.onDidChangeCursorPosition((event) => {
-              setCursorPosition({
-                line: event.position.lineNumber,
-                column: event.position.column,
-              });
-            });
-          }}
+          onMount={handleMount}
           options={{
-            minimap: { enabled: false },
+            minimap: { enabled: minimap },
             scrollBeyondLastLine: false,
             fontSize: 13,
             fontFamily: "var(--fw-font-mono, 'JetBrains Mono', monospace)",
             fontLigatures: true,
-            wordWrap: "off",
+            wordWrap: wrap ? "on" : "off",
             automaticLayout: true,
             tabSize: 4,
             insertSpaces: true,
@@ -96,6 +162,8 @@ export default function WorkspaceEditor() {
             guides: { indentation: true, bracketPairs: true },
             roundedSelection: false,
             padding: { top: 8, bottom: 8 },
+            formatOnPaste: true,
+            formatOnType: true,
           }}
         />
       </div>

@@ -18,7 +18,8 @@ import WorkspaceEditor from "./components/WorkspaceEditor";
 import WorkspacePanel from "./components/WorkspacePanel";
 import WorkspaceStatusBar from "./components/WorkspaceStatusBar";
 import WorkspaceToolbar from "./components/WorkspaceToolbar";
-import MetadataPanel from "../metadata/components/MetadataPanel";
+import MetadataLauncher from "../metadata/components/retrieve/MetadataLauncher";
+import MetadataRetriever from "../metadata/components/retrieve/MetadataRetriever";
 import { useWorkspaceInit } from "./hooks/useWorkspaceInit";
 import { useWorkspaceShortcuts } from "./hooks/useWorkspaceShortcuts";
 import { useWorkspaceStore } from "./store/workspaceStore";
@@ -39,6 +40,8 @@ export default function WorkspacePage() {
   const setPanelOpen = useWorkspaceStore((state) => state.setPanelOpen);
   const openFolder = useWorkspaceStore((state) => state.openFolder);
   const initWorkspace = useWorkspaceStore((state) => state.initWorkspace);
+  const retrieveOpen = useWorkspaceStore((state) => state.retrieveOpen);
+  const closeRetrieve = useWorkspaceStore((state) => state.closeRetrieve);
 
   const { loaded, error, booting } = useWorkspaceInit();
   useWorkspaceShortcuts();
@@ -122,7 +125,7 @@ export default function WorkspacePage() {
                   {activeView === "explorer" && <WorkspaceExplorer />}
                   {activeView === "search" && <WorkspaceSearch />}
                   {activeView === "scm" && <SourceControl />}
-                  {activeView === "metadata" && <MetadataPanel />}
+                  {activeView === "metadata" && <MetadataLauncher />}
                   {activeView === "settings" && (
                     <div className="forge-ws__placeholder">
                       Workspace settings are coming soon.
@@ -168,6 +171,17 @@ export default function WorkspacePage() {
       </div>
 
       <WorkspaceStatusBar />
+
+      {retrieveOpen && (
+        <div
+          className="mr-overlay"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeRetrieve();
+          }}
+        >
+          <MetadataRetriever mode="overlay" onClose={closeRetrieve} />
+        </div>
+      )}
     </div>
   );
 }

@@ -1,13 +1,15 @@
 import { useEffect, useRef } from "react";
 import { FilePlus2, FolderPlus, Pencil, Trash2 } from "lucide-react";
 
-import { useWorkspaceStore } from "../store/workspaceStore";
-
 interface FileContextMenuProps {
   x: number;
   y: number;
   path: string;
   onClose: () => void;
+  onNewFile: (path: string) => void;
+  onNewFolder: (path: string) => void;
+  onRename: (path: string) => void;
+  onDelete: (path: string) => void;
 }
 
 export default function FileContextMenu({
@@ -15,67 +17,87 @@ export default function FileContextMenu({
   y,
   path,
   onClose,
+  onNewFile,
+  onNewFolder,
+  onRename,
+  onDelete,
 }: FileContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const { renameItem, deleteItem, createItem } = useWorkspaceStore();
 
+  /* Keep the menu inside the viewport and close on outside click / Escape. */
   useEffect(() => {
-    if (!ref.current) return;
     const menu = ref.current;
-    const width = 170;
-    const height = 160;
-    const left = Math.min(x, window.innerWidth - width - 8);
-    const top = Math.min(y, window.innerHeight - height - 8);
-    menu.style.left = `${Math.max(8, left)}px`;
-    menu.style.top = `${Math.max(8, top)}px`;
-  }, [x, y]);
+    if (menu) {
+      const rect = menu.getBoundingClientRect();
+      const left = Math.min(x, window.innerWidth - rect.width - 8);
+      const top = Math.min(y, window.innerHeight - rect.height - 8);
+      menu.style.left = `${Math.max(8, left)}px`;
+      menu.style.top = `${Math.max(8, top)}px`;
+    }
 
-  const handleAction = (action: () => void) => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!menu?.contains(event.target as Node)) onClose();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [x, y, onClose]);
+
+  const run = (action: () => void) => {
     action();
     onClose();
   };
 
-  const handleRename = () => {
-    const newName = window.prompt("Rename", path.split("/").pop() ?? "");
-    if (newName && newName.trim()) {
-      void renameItem(path, newName.trim());
-    }
-  };
-
-  const handleDelete = () => {
-    if (window.confirm(`Delete "${path}"? This cannot be undone.`)) {
-      void deleteItem(path);
-    }
-  };
-
-  const handleNewFile = () => {
-    const name = window.prompt("New file name");
-    if (name && name.trim()) {
-      void createItem(path, name.trim(), false);
-    }
-  };
-
-  const handleNewFolder = () => {
-    const name = window.prompt("New folder name");
-    if (name && name.trim()) {
-      void createItem(path, name.trim(), true);
-    }
-  };
-
   return (
-    <div ref={ref} className="forge-ws__context-menu" onMouseLeave={onClose}>
-      <button type="button" onClick={() => handleAction(handleNewFile)}>
-        <FilePlus2 size={13} /> New File…
+    <div
+      ref={ref}
+      className="forge-ws__context-menu"
+      role="menu"
+      aria-label="Explorer item actions"
+    >
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => run(() => onNewFile(path))}
+      >
+        <FilePlus2 size={14} />
+        <span>New File…</span>
       </button>
-      <button type="button" onClick={() => handleAction(handleNewFolder)}>
-        <FolderPlus size={13} /> New Folder…
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => run(() => onNewFolder(path))}
+      >
+        <FolderPlus size={14} />
+        <span>New Folder…</span>
       </button>
-      <div className="forge-ws__context-menu__sep" />
-      <button type="button" onClick={() => handleAction(handleRename)}>
-        <Pencil size={13} /> Rename…
+      <div className="forge-ws__context-menu__sep" role="separator" />
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => run(() => onRename(path))}
+      >
+        <Pencil size={14} />
+        <span>Rename…</span>
+        <kbd>F2</kbd>
       </button>
-      <button type="button" onClick={() => handleAction(handleDelete)}>
-        <Trash2 size={13} className="danger" /> Delete
+      <div className="forge-ws__context-menu__sep" role="separator" />
+      <button
+        type="button"
+        role="menuitem"
+        className="is-danger"
+        onClick={() => run(() => onDelete(path))}
+      >
+        <Trash2 size={14} />
+        <span>Delete</span>
+        <kbd>Del</kbd>
       </button>
     </div>
   );

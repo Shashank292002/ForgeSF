@@ -1,4 +1,4 @@
-import { Cloud, Loader2, RotateCw, Rocket, Save } from "lucide-react";
+import { Cloud, Database, Loader2, RotateCw, Rocket, Save } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { useOrganizationStore } from "../../../store/orgStore";
@@ -12,6 +12,7 @@ export default function WorkspaceToolbar() {
   const refreshFiles = useWorkspaceStore((state) => state.refreshFiles);
   const saveAll = useWorkspaceStore((state) => state.saveAll);
   const runDeploy = useWorkspaceStore((state) => state.runDeploy);
+  const openRetrieve = useWorkspaceStore((state) => state.openRetrieve);
 
   const organization = useOrganizationStore(
     (state) => state.selectedOrganization,
@@ -52,6 +53,18 @@ export default function WorkspaceToolbar() {
           <Cloud size={13} />
           {organization ? organization.alias : "No org"}
         </span>
+
+        <span className="workspace-toolbar__divider" />
+
+        <button
+          type="button"
+          className="workspace-toolbar__btn--retrieve"
+          title="Retrieve Metadata from org"
+          onClick={openRetrieve}
+        >
+          <Database size={14} />
+          Retrieve
+        </button>
 
         <button
           type="button"

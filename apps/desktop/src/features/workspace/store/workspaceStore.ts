@@ -101,6 +101,11 @@ interface WorkspaceState {
   togglePanel: () => void;
   setCursorPosition: (position: CursorPosition) => void;
   revealFile: (path: string) => void;
+
+  /** Whether the retrieve-metadata overlay is open. */
+  retrieveOpen: boolean;
+  openRetrieve: () => void;
+  closeRetrieve: () => void;
 }
 
 /** Stable id generator for terminal entries. */
@@ -674,6 +679,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         activeView: "explorer",
         sidebarVisible: true,
       })),
+
+    retrieveOpen: false,
+
+    openRetrieve: () =>
+      set({ retrieveOpen: true, activeView: "metadata" }),
+
+    closeRetrieve: () =>
+      set({ retrieveOpen: false }),
   };
 });
 

@@ -1,7 +1,36 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { Organization } from "../features/org-manager/types";
 import type { MetadataType } from "../features/metadata/types";
+
+export interface RetrieveResultItem {
+  kind: string;
+  status: "completed" | "failed";
+  retrieved: number;
+  message?: string;
+}
+
+export interface RetrieveResult {
+  success: boolean;
+  summary: string;
+  items: RetrieveResultItem[];
+  total: number;
+  succeeded: number;
+  failed: number;
+}
+
+export interface RetrieveProgressEvent {
+  phase: "item" | "complete";
+  index: number;
+  total: number;
+  kind?: string;
+  status?: "running" | "completed" | "failed";
+  retrieved: number;
+  succeeded: number;
+  failed: number;
+  message?: string;
+}
 
 // Connect Salesforce org
 export function connectSalesforce() {
@@ -94,4 +123,30 @@ export function runQuery(username: string, query: string) {
 
 export function runCommand(args: string[], input?: string) {
     return invoke<string>("run_command", { args, input });
+}
+
+/**
+ * Retrieves the selected metadata from an org, streaming live progress events
+ * so callers can render per-type progress. Resolves once all types complete.
+ */
+export function retrieveMetadataProgress(
+    username: string,
+    metadata: string[]
+) {
+    return invoke<RetrieveResult>("retrieve_metadata_progress", {
+        username,
+        metadata,
+    });
+}
+
+/**
+ * Subscribes to live retrieval progress events. Returns a function that
+ * unsubscribes.
+ */
+export function onRetrieveProgress(
+    callback: (payload: RetrieveProgressEvent) => void
+): Promise<UnlistenFn> {
+    return listen<RetrieveProgressEvent>("retrieve_progress", (event) => {
+        callback(event.payload);
+    });
 }

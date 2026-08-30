@@ -59,6 +59,8 @@ export default function WorkspaceStatusBar() {
             ? languageForPath(selectedFile).toUpperCase()
             : "PLAINTEXT"}
         </span>
+        <span className="workspace-statusbar__item">Spaces: 4</span>
+        <span className="workspace-statusbar__item">UTF-8</span>
         <span className="workspace-statusbar__item">
           {dirtyCount > 0 ? `${dirtyCount} unsaved` : "Clean"}
         </span>

@@ -22,17 +22,23 @@ export default function RetrieveResultsView({
   );
   const failures = result.items.filter((item) => item.status === "failed");
 
-  const showCounts = result.items.filter((item) => item.retrieved > 0).slice(0, 5);
+  const showCounts = result.items
+    .filter((item) => item.retrieved > 0)
+    .slice(0, 5);
 
   return (
     <div className="mr-results">
       <div className={`mr-results__hero ${result.success ? "" : "is-fail"}`}>
-        <span className={`mr-results__hero-icon ${result.success ? "is-ok" : "is-warn"}`}>
+        <span
+          className={`mr-results__hero-icon ${result.success ? "is-ok" : "is-warn"}`}
+        >
           {result.success ? <CheckCircle2 size={24} /> : <XCircle size={24} />}
         </span>
         <div>
           <div className="mr-results__hero-title">
-            {result.success ? "Retrieval complete" : "Retrieval finished with errors"}
+            {result.success
+              ? "Retrieval complete"
+              : "Retrieval finished with errors"}
           </div>
           <div className="mr-results__hero-sub">
             {result.success
@@ -67,7 +73,9 @@ export default function RetrieveResultsView({
               <XCircle size={15} />
             )}
           </span>
-          <span className="mr-result-row__name">{prettyMetadataKind(item.kind)}</span>
+          <span className="mr-result-row__name">
+            {prettyMetadataKind(item.kind)}
+          </span>
           {item.status === "completed" ? (
             <span className={`mr-result-row__count is-ok`}>
               {item.retrieved} item{item.retrieved === 1 ? "" : "s"}
@@ -117,10 +125,18 @@ export default function RetrieveResultsView({
               <RotateCw size={14} /> Retry failed
             </button>
           )}
-          <button type="button" className="mr-btn mr-btn--ghost" onClick={onRetrieveMore}>
+          <button
+            type="button"
+            className="mr-btn mr-btn--ghost"
+            onClick={onRetrieveMore}
+          >
             Retrieve more
           </button>
-          <button type="button" className="mr-btn mr-btn--success" onClick={onOpenWorkspace}>
+          <button
+            type="button"
+            className="mr-btn mr-btn--success"
+            onClick={onOpenWorkspace}
+          >
             Open in Workspace
           </button>
         </div>

@@ -49,7 +49,9 @@ export default function WorkspaceStatusBar() {
           </span>
         )}
         {saveStatus === "error" && (
-          <span className="workspace-statusbar__item is-error">Save failed</span>
+          <span className="workspace-statusbar__item is-error">
+            Save failed
+          </span>
         )}
         <span className="workspace-statusbar__item">
           Ln {cursor.line}, Col {cursor.column}

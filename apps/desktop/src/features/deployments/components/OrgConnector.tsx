@@ -21,21 +21,24 @@ export default function OrgConnector({
   onTargetChange,
   onSwap,
 }: OrgConnectorProps) {
-  const [plugged, setPlugged] = useState(false);
-  const [animating, setAnimating] = useState(false);
+  const connected = Boolean(sourceOrg && targetOrg);
+
+  // `settled` is the only real state: whether the plug-in animation has
+  // finished. Everything else is derived, so the effect never writes state
+  // synchronously in its body (it only schedules a timer and cleans up).
+  const [settled, setSettled] = useState(false);
 
   useEffect(() => {
-    if (sourceOrg && targetOrg) {
-      setAnimating(true);
-      const timer = setTimeout(() => {
-        setPlugged(true);
-        setAnimating(false);
-      }, 600);
-      return () => clearTimeout(timer);
-    } else {
-      setPlugged(false);
-    }
-  }, [sourceOrg, targetOrg]);
+    if (!connected) return;
+    const timer = setTimeout(() => setSettled(true), 600);
+    return () => {
+      clearTimeout(timer);
+      setSettled(false);
+    };
+  }, [connected]);
+
+  const plugged = connected && settled;
+  const animating = connected && !settled;
 
   const dot = (org: Organization | null) => {
     if (!org) return "disconnected";
@@ -52,24 +55,31 @@ export default function OrgConnector({
             Source Org
           </div>
           <div className={styles.orgSelector}>
-            <div className={styles.cloudIcon}><Cloud size={22} /></div>
+            <div className={styles.cloudIcon}>
+              <Cloud size={22} />
+            </div>
             <select
               className={styles.select}
               value={sourceOrg?.id ?? ""}
               onChange={(e) => {
-                const org = organizations.find((o) => o.id === e.target.value) ?? null;
+                const org =
+                  organizations.find((o) => o.id === e.target.value) ?? null;
                 onSourceChange(org);
               }}
             >
               <option value="">Select source org...</option>
               {organizations.map((org) => (
-                <option key={org.id} value={org.id}>{org.alias} ({org.orgType})</option>
+                <option key={org.id} value={org.id}>
+                  {org.alias} ({org.orgType})
+                </option>
               ))}
             </select>
             {sourceOrg && (
               <div className={styles.orgMeta}>
                 <span className={styles.orgType}>{sourceOrg.orgType}</span>
-                <span className={styles.orgUrl}>{sourceOrg.instanceUrl.replace("https://","")}</span>
+                <span className={styles.orgUrl}>
+                  {sourceOrg.instanceUrl.replace("https://", "")}
+                </span>
               </div>
             )}
           </div>
@@ -78,37 +88,86 @@ export default function OrgConnector({
         {/* Cable */}
         <div className={styles.cableSection}>
           <div className={styles.cableTrack}>
-            <div className={cls(styles.plugHead, animating && styles.plugAnimating, plugged && styles.plugPlugged)}>
-              <div className={styles.plugBody}><Zap size={14} className={styles.plugIcon} /></div>
+            <div
+              className={cls(
+                styles.plugHead,
+                animating && styles.plugAnimating,
+                plugged && styles.plugPlugged,
+              )}
+            >
+              <div className={styles.plugBody}>
+                <Zap size={14} className={styles.plugIcon} />
+              </div>
               <div className={styles.plugPoints}>
-                <span className={styles.pin} /><span className={styles.pin} /><span className={styles.pin} />
+                <span className={styles.pin} />
+                <span className={styles.pin} />
+                <span className={styles.pin} />
               </div>
             </div>
-            <svg className={styles.cableSvg} viewBox="0 0 200 60" preserveAspectRatio="none">
+            <svg
+              className={styles.cableSvg}
+              viewBox="0 0 200 60"
+              preserveAspectRatio="none"
+            >
               <defs>
                 <linearGradient id="cg" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#6d5bff" /><stop offset="50%" stopColor="#9d4dff" /><stop offset="100%" stopColor="#ec4899" />
+                  <stop offset="0%" stopColor="#6d5bff" />
+                  <stop offset="50%" stopColor="#9d4dff" />
+                  <stop offset="100%" stopColor="#ec4899" />
                 </linearGradient>
                 <filter id="glow">
-                  <feGaussianBlur stdDeviation="2" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                  <feGaussianBlur stdDeviation="2" result="b" />
+                  <feMerge>
+                    <feMergeNode in="b" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
                 </filter>
               </defs>
-              <path d="M5,30 Q50,10 100,30 Q150,50 195,30" fill="none"
-                stroke={plugged ? "url(#cg)" : "rgba(148,163,184,0.2)"} strokeWidth="3" strokeLinecap="round"
+              <path
+                d="M5,30 Q50,10 100,30 Q150,50 195,30"
+                fill="none"
+                stroke={plugged ? "url(#cg)" : "rgba(148,163,184,0.2)"}
+                strokeWidth="3"
+                strokeLinecap="round"
                 filter={plugged ? "url(#glow)" : undefined}
-                className={cls(styles.cablePath, plugged && styles.cableLive)} />
+                className={cls(styles.cablePath, plugged && styles.cableLive)}
+              />
               {plugged && (
-                <><circle r="3" fill="#6d5bff" filter="url(#glow)" className={styles.p1} />
-                <circle r="2.5" fill="#9d4dff" filter="url(#glow)" className={styles.p2} />
-                <circle r="2" fill="#ec4899" filter="url(#glow)" className={styles.p3} /></>
+                <>
+                  <circle
+                    r="3"
+                    fill="#6d5bff"
+                    filter="url(#glow)"
+                    className={styles.p1}
+                  />
+                  <circle
+                    r="2.5"
+                    fill="#9d4dff"
+                    filter="url(#glow)"
+                    className={styles.p2}
+                  />
+                  <circle
+                    r="2"
+                    fill="#ec4899"
+                    filter="url(#glow)"
+                    className={styles.p3}
+                  />
+                </>
               )}
             </svg>
             {plugged && (
-              <div className={styles.connectionBadge}><Zap size={12} /><span>Connected</span></div>
+              <div className={styles.connectionBadge}>
+                <Zap size={12} />
+                <span>Connected</span>
+              </div>
             )}
           </div>
-          <button className={styles.swapBtn} onClick={onSwap} title="Swap source and target"
-            disabled={!sourceOrg && !targetOrg}>
+          <button
+            className={styles.swapBtn}
+            onClick={onSwap}
+            title="Swap source and target"
+            disabled={!sourceOrg && !targetOrg}
+          >
             <ArrowLeftRight size={16} />
           </button>
         </div>
@@ -120,24 +179,31 @@ export default function OrgConnector({
             Target Org
           </div>
           <div className={styles.orgSelector}>
-            <div className={styles.cloudIcon}><Cloud size={22} /></div>
+            <div className={styles.cloudIcon}>
+              <Cloud size={22} />
+            </div>
             <select
               className={styles.select}
               value={targetOrg?.id ?? ""}
               onChange={(e) => {
-                const org = organizations.find((o) => o.id === e.target.value) ?? null;
+                const org =
+                  organizations.find((o) => o.id === e.target.value) ?? null;
                 onTargetChange(org);
               }}
             >
               <option value="">Select target org...</option>
               {organizations.map((org) => (
-                <option key={org.id} value={org.id}>{org.alias} ({org.orgType})</option>
+                <option key={org.id} value={org.id}>
+                  {org.alias} ({org.orgType})
+                </option>
               ))}
             </select>
             {targetOrg && (
               <div className={styles.orgMeta}>
                 <span className={styles.orgType}>{targetOrg.orgType}</span>
-                <span className={styles.orgUrl}>{targetOrg.instanceUrl.replace("https://","")}</span>
+                <span className={styles.orgUrl}>
+                  {targetOrg.instanceUrl.replace("https://", "")}
+                </span>
               </div>
             )}
           </div>

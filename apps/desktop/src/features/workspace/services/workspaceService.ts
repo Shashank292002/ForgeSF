@@ -62,11 +62,22 @@ export function deleteWorkspaceItem(path: string): Promise<void> {
   return invoke<void>("delete_workspace_item", { itemPath: path });
 }
 
+export interface DeployOutcome {
+  jobId?: string;
+  status: string;
+  summary: string;
+  checkOnly: boolean;
+}
+
 export function deployWorkspace(
   username: string,
   checkOnly = false,
-): Promise<string> {
-  return invoke<string>("deploy_workspace", { username, checkOnly });
+): Promise<DeployOutcome> {
+  return invoke<DeployOutcome>("deploy_workspace", {
+    username,
+    checkOnly,
+    metadata: null,
+  });
 }
 
 /** Runs an arbitrary `sf` CLI command (used by the terminal). */

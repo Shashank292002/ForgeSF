@@ -71,7 +71,9 @@
   background: var(--color-surface-elevated);
   color: var(--color-text-muted);
 
-  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+  transition:
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 
 .search:focus-within {

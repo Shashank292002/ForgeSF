@@ -18,6 +18,7 @@ import { useOrganizationStore } from "../../store/orgStore";
 import { runQuery, runCommand } from "../../services/tauri";
 import { Button, Badge } from "../../components/ui";
 import OrgGuard from "../../components/OrgGuard/OrgGuard";
+import RecordTable from "./RecordTable";
 
 import "./SOQLPage.css";
 
@@ -43,6 +44,11 @@ const TAB_LABELS: Record<Tab, string> = {
   cli: "CLI",
 };
 
+interface HistoryEntry {
+  tab: Tab;
+  value: string;
+}
+
 function tryParseRecords(output: string): Record<string, unknown>[] | null {
   try {
     const parsed = JSON.parse(output);
@@ -66,9 +72,22 @@ export default function SOQLPage() {
   const [copied, setCopied] = useState(false);
   const [executeMs, setExecuteMs] = useState<number | null>(null);
 
-  const [history, setHistory] = useState<string[]>(() => {
+  // Entries remember the tab they were run from. A single flat list replayed
+  // SOQL through whichever tab happened to be open — sending a query to the
+  // `sf` binary as argv.
+  const [history, setHistory] = useState<HistoryEntry[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem("devtools.history") || "[]");
+      const raw = JSON.parse(localStorage.getItem("devtools.history") || "[]");
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .map((item): HistoryEntry | null =>
+          typeof item === "string"
+            ? { tab: "soql", value: item } // migrate the old flat format
+            : item && typeof item.value === "string"
+              ? { tab: (item.tab as Tab) ?? "soql", value: item.value }
+              : null,
+        )
+        .filter((item): item is HistoryEntry => item !== null);
     } catch {
       return [];
     }
@@ -79,11 +98,14 @@ export default function SOQLPage() {
   const records = useMemo(() => tryParseRecords(output), [output]);
   const rowCount = records?.length ?? 0;
 
-  function pushHistory(q: string) {
+  function pushHistory(entryTab: Tab, q: string) {
     const trimmed = q.trim();
     if (!trimmed) return;
     setHistory((prev) => {
-      const next = [trimmed, ...prev.filter((h) => h !== trimmed)].slice(0, 50);
+      const next = [
+        { tab: entryTab, value: trimmed },
+        ...prev.filter((h) => !(h.value === trimmed && h.tab === entryTab)),
+      ].slice(0, 50);
       localStorage.setItem("devtools.history", JSON.stringify(next));
       return next;
     });
@@ -102,7 +124,11 @@ export default function SOQLPage() {
     });
   }
 
-  async function runWith(fn: () => Promise<string>, historyValue: string) {
+  async function runWith(
+    fn: () => Promise<string>,
+    historyTab: Tab,
+    historyValue: string,
+  ) {
     if (!org || running) return;
 
     setRunning(true);
@@ -115,7 +141,7 @@ export default function SOQLPage() {
     try {
       const res = await fn();
       setOutput(res);
-      if (historyValue) pushHistory(historyValue.trim());
+      if (historyValue) pushHistory(historyTab, historyValue.trim());
     } catch (err: unknown) {
       setOutput(err instanceof Error ? err.message : String(err));
     } finally {
@@ -123,54 +149,93 @@ export default function SOQLPage() {
       setExecuteMs(Math.round(performance.now() - started));
     }
   }
-const runForTab = (override: string) => {
-    if (tab === "soql")
-      void runWith(async () => {
-        if (!org) return "";
-        return runQuery(org.username, override.trim());
-      }, override);
-    else if (tab === "sosl")
-      void runWith(async () => {
-        if (!org) return "";
-        return runCommand(
-          ["data", "search", "--target-org", org.username, "--query", override.trim(), "--json"],
-          undefined
-        );
-      }, override);
-    else if (tab === "apex")
-      void runWith(async () => {
-        if (!org) return "";
-        return runCommand(
-          ["apex", "execute", "--target-org", org.username, "--json"],
-          override
-        );
-      }, override);
+  const runForTab = (override: string, forTab: Tab = tab) => {
+    if (forTab === "soql")
+      void runWith(
+        async () => {
+          if (!org) return "";
+          return runQuery(org.username, override.trim());
+        },
+        forTab,
+        override,
+      );
+    else if (forTab === "sosl")
+      void runWith(
+        async () => {
+          if (!org) return "";
+          return runCommand(
+            [
+              "data",
+              "search",
+              "--target-org",
+              org.username,
+              "--query",
+              override.trim(),
+              "--json",
+            ],
+            undefined,
+          );
+        },
+        forTab,
+        override,
+      );
+    else if (forTab === "apex")
+      void runWith(
+        async () => {
+          if (!org) return "";
+          return runCommand(
+            ["apex", "execute", "--target-org", org.username, "--json"],
+            override,
+          );
+        },
+        forTab,
+        override,
+      );
     else
-      void runWith(async () => {
-        const parts = override.match(/(?:[^"\s]+|"[^"]*")+/g) || [];
-        const args = parts.map((p) => p.replace(/^"|"$/g, ""));
-        return runCommand(args, undefined);
-      }, override);
+      void runWith(
+        async () => {
+          const parts = override.match(/(?:[^"\s]+|"[^"]*")+/g) || [];
+          const args = parts.map((p) => p.replace(/^"|"$/g, ""));
+          return runCommand(args, undefined);
+        },
+        forTab,
+        override,
+      );
   };
 
   const run = () => runForTab(input);
 
+  // Each tab keeps its own buffer. Resetting `input` to the tab's first
+  // snippet meant one misclick threw away whatever had been typed.
+  const [drafts, setDrafts] = useState<Record<Tab, string>>(() => ({
+    soql: SNIPPETS.soql[0],
+    sosl: SNIPPETS.sosl[0],
+    apex: SNIPPETS.apex[0],
+    cli: SNIPPETS.cli[0],
+  }));
+
   function handleTabChange(next: Tab) {
+    setDrafts((prev) => ({ ...prev, [tab]: input }));
+    setInput(drafts[next]);
     setTab(next);
     setOutput("");
-    setInput(SNIPPETS[next][0]);
     setView("table");
     setExecuteMs(null);
   }
 
-  function loadFromHistory(item: string) {
-    setInput(item);
+  function loadFromHistory(item: HistoryEntry) {
+    if (item.tab !== tab) {
+      setDrafts((prev) => ({ ...prev, [tab]: input }));
+      setTab(item.tab);
+    }
+    setInput(item.value);
     setOutput("");
   }
 
-  function runFromHistory(item: string) {
-    setInput(item);
-    runForTab(item);
+  function runFromHistory(item: HistoryEntry) {
+    loadFromHistory(item);
+    // Runs against the tab the entry was recorded from, not the active one.
+    runForTab(item.value, item.tab);
   }
 
   async function copyOutput() {
@@ -200,13 +265,36 @@ const runForTab = (override: string) => {
     }
   }
 
-  const headers = useMemo(
-    () => (records ? Object.keys(records[0] || {}) : []),
-    [records]
-  );
+  // Union the keys across every row, minus Salesforce's `attributes`
+  // envelope: taking `Object.keys(records[0])` dropped columns that only
+  // appear on later rows, and rendered `attributes` as "[object Object]".
+  const headers = useMemo(() => {
+    if (!records) return [];
+    const seen = new Set<string>();
+    for (const row of records) {
+      for (const key of Object.keys(row)) {
+        if (key !== "attributes") seen.add(key);
+      }
+    }
+    return [...seen];
+  }, [records]);
+
+  /** Renders a SOQL cell, flattening the nested objects relationships return. */
+  const renderCell = (value: unknown): string => {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "object") {
+      const nested = { ...(value as Record<string, unknown>) };
+      delete nested.attributes;
+      const entries = Object.entries(nested);
+      // A single-field relationship (`Account.Name`) reads better unwrapped.
+      if (entries.length === 1) return String(entries[0][1] ?? "");
+      return JSON.stringify(nested);
+    }
+    return String(value);
+  };
 
   return (
-<OrgGuard>
+    <OrgGuard>
       <div className="soql-page">
         <div className="soql-header">
           <div className="soql-titleRow">
@@ -216,8 +304,8 @@ const runForTab = (override: string) => {
             <div>
               <h1>Developer Tools</h1>
               <p className="soql-subtitle">
-                Query, run Apex, and execute Salesforce CLI commands against your
-                connected org.
+                Query, run Apex, and execute Salesforce CLI commands against
+                your connected org.
               </p>
             </div>
           </div>
@@ -259,7 +347,9 @@ const runForTab = (override: string) => {
                     <div className="soql-actions">
                       <Button
                         variant="gradient"
-                        leftIcon={running ? <Loader2 size={15} /> : <Play size={15} />}
+                        leftIcon={
+                          running ? <Loader2 size={15} /> : <Play size={15} />
+                        }
                         onClick={run}
                         loading={running}
                         disabled={!org}
@@ -301,17 +391,17 @@ const runForTab = (override: string) => {
 
                 <Panel>
                   <div className="soql-output-panel">
-<div className="soql-output-header">
+                    <div className="soql-output-header">
                       <div className="soql-output-title">
                         <strong>Output</strong>
                         <Badge tone={running ? "warning" : "default"} dot>
                           {running
                             ? "Running"
                             : rowCount > 0 && records
-                            ? `${rowCount} row${rowCount === 1 ? "" : "s"}`
-                            : executeMs
-                            ? `${executeMs}ms`
-                            : "Idle"}
+                              ? `${rowCount} row${rowCount === 1 ? "" : "s"}`
+                              : executeMs
+                                ? `${executeMs}ms`
+                                : "Idle"}
                         </Badge>
                       </div>
 
@@ -349,7 +439,11 @@ const runForTab = (override: string) => {
                               onClick={copyOutput}
                               title="Copy output"
                             >
-                              {copied ? <Check size={14} /> : <Copy size={14} />}
+                              {copied ? (
+                                <Check size={14} />
+                              ) : (
+                                <Copy size={14} />
+                              )}
                               {copied ? "Copied" : "Copy"}
                             </button>
                             <button
@@ -370,28 +464,11 @@ const runForTab = (override: string) => {
                       </pre>
                     ) : output ? (
                       records && view === "table" ? (
-                        <div className="soql-records">
-                          <table className="soql-record-table">
-                            <thead>
-                              <tr>
-                                {headers.map((k) => (
-                                  <th key={k}>{k}</th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {records.map((r, i) => (
-                                <tr key={i}>
-                                  {headers.map((k) => (
-                                    <td key={k}>
-                                      {String((r as Record<string, unknown>)[k] ?? "")}
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                        <RecordTable
+                          records={records}
+                          headers={headers}
+                          renderCell={renderCell}
+                        />
                       ) : (
                         <pre className="soql-output-pre">{output}</pre>
                       )
@@ -404,7 +481,7 @@ const runForTab = (override: string) => {
                 </Panel>
               </PanelGroup>
             </Panel>
-<PanelResizeHandle className="soql-h-resize-handle" />
+            <PanelResizeHandle className="soql-h-resize-handle" />
 
             <Panel defaultSize={28} minSize={18} collapsible>
               <div className="soql-history-panel">
@@ -430,13 +507,19 @@ const runForTab = (override: string) => {
                     </p>
                   ) : (
                     history.map((item, i) => (
-                      <div className="soql-history-item" key={`${i}-${item}`}>
+                      <div
+                        className="soql-history-item"
+                        key={`${i}-${item.value}`}
+                      >
                         <button
                           className="soql-history-load"
                           onClick={() => loadFromHistory(item)}
-                          title="Load into editor"
+                          title={`Load into the ${TAB_LABELS[item.tab]} tab`}
                         >
-                          {item}
+                          <span className="soql-history-tag">
+                            {TAB_LABELS[item.tab]}
+                          </span>
+                          {item.value}
                         </button>
                         <button
                           className="soql-history-run"

@@ -138,7 +138,9 @@
   font-weight: 600;
   cursor: pointer;
   flex-shrink: 0;
-  transition: filter 120ms ease, opacity 120ms ease;
+  transition:
+    filter 120ms ease,
+    opacity 120ms ease;
 }
 
 .workspace-terminal__run:hover:not(:disabled) {

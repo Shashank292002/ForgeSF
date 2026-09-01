@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { Plug, Search, Package, Shield, Wand2, Box, Download, Check } from "lucide-react";
+import {
+  Plug,
+  Search,
+  Package,
+  Shield,
+  Wand2,
+  Box,
+  Download,
+  Check,
+} from "lucide-react";
 
 import { Button, Badge, Card, Input } from "../../components/ui";
 
@@ -66,12 +75,12 @@ const iconMap: Record<Plugin["icon"], { class: string; Icon: typeof Plug }> = {
 
 export default function PluginsPage() {
   const [installed, setInstalled] = useState<Record<string, boolean>>(
-    Object.fromEntries(plugins.map((p) => [p.name, p.installed]))
+    Object.fromEntries(plugins.map((p) => [p.name, p.installed])),
   );
   const [query, setQuery] = useState("");
 
   const filtered = plugins.filter((p) =>
-    p.name.toLowerCase().includes(query.toLowerCase())
+    p.name.toLowerCase().includes(query.toLowerCase()),
   );
 
   function toggle(name: string) {
@@ -133,7 +142,9 @@ export default function PluginsPage() {
 
               <Button
                 variant={isInstalled ? "secondary" : "gradient"}
-                leftIcon={isInstalled ? <Check size={15} /> : <Download size={15} />}
+                leftIcon={
+                  isInstalled ? <Check size={15} /> : <Download size={15} />
+                }
                 onClick={() => toggle(plugin.name)}
               >
                 {isInstalled ? "Uninstall" : "Install"}

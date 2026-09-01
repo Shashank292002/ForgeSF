@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
 
@@ -18,11 +18,18 @@ export function useWorkspaceInit(): WorkspaceInitState {
   const booting = useWorkspaceStore((state) => state.booting);
   const initWorkspace = useWorkspaceStore((state) => state.initWorkspace);
 
+  // Boot exactly once per mount. Watching `loaded`/`booting` here caused an
+  // unbounded retry loop on failure: init sets `booting` false in its
+  // `finally`, the dependency changed, the effect re-fired, and the store's
+  // own `(booting || loaded)` guard let it straight through again. Recovery
+  // is now an explicit user action (the Retry button on the error card).
+  const bootRequested = useRef(false);
+
   useEffect(() => {
-    if (!loaded && !booting) {
-      void initWorkspace();
-    }
-  }, [loaded, booting, initWorkspace]);
+    if (bootRequested.current) return;
+    bootRequested.current = true;
+    void initWorkspace();
+  }, [initWorkspace]);
 
   return { loaded, error, booting };
 }

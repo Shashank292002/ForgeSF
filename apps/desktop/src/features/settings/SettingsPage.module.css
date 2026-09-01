@@ -78,7 +78,10 @@
   font-size: 13px;
   font-weight: 600;
 
-  transition: border-color var(--motion-fast), color var(--motion-fast), background var(--motion-fast);
+  transition:
+    border-color var(--motion-fast),
+    color var(--motion-fast),
+    background var(--motion-fast);
 }
 
 .themeOption:hover {

@@ -161,7 +161,9 @@ export const CATEGORY_ORDER: MetadataCategoryKey[] = [
   "other",
 ];
 
-export function metadataCategoryInfo(key: MetadataCategoryKey): MetadataCategoryInfo {
+export function metadataCategoryInfo(
+  key: MetadataCategoryKey,
+): MetadataCategoryInfo {
   return CATEGORY_INFO[key];
 }
 
@@ -174,7 +176,7 @@ const CATEGORY_RULES: Array<{ key: MetadataCategoryKey; match: RegExp }> = [
   {
     key: "apex",
     match:
-      /(apexclass|apextrigger|apexcomponent|apexpage|apextestsuite|lightningcomponentbundle|lightningmessagechannel|auraddefinitionbundle|staticresource|contentasset)/i,
+      /(apexclass|apextrigger|apexcomponent|apexpage|apextestsuite|lightningcomponentbundle|lightningmessagechannel|auradefinitionbundle|staticresource|contentasset)/i,
   },
   {
     key: "automation",
@@ -208,7 +210,7 @@ export function categoryForType(xmlName: string): MetadataCategoryInfo {
   return matched ? CATEGORY_INFO[matched.key] : CATEGORY_INFO.other;
 }
 
-/** Distinct categories present in a set of metadata types (in display order). */
+/** Count of types per category, including categories with none. */
 export function categoriesForTypes(
   metadata: Array<{ xmlName: string }>,
 ): Required<Record<MetadataCategoryKey, number>> {

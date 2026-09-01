@@ -24,18 +24,19 @@ export default function Card({
   className,
   children,
 }: CardProps) {
-  const heading = title || icon ? (
-    <div className={styles.head}>
-      <div className={styles.headLeft}>
-        {icon && <span className={styles.icon}>{icon}</span>}
-        <div>
-          {title && <h3 className={styles.title}>{title}</h3>}
-          {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
+  const heading =
+    title || icon ? (
+      <div className={styles.head}>
+        <div className={styles.headLeft}>
+          {icon && <span className={styles.icon}>{icon}</span>}
+          <div>
+            {title && <h3 className={styles.title}>{title}</h3>}
+            {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
+          </div>
         </div>
+        {action && <div className={styles.action}>{action}</div>}
       </div>
-      {action && <div className={styles.action}>{action}</div>}
-    </div>
-  ) : null;
+    ) : null;
 
   return (
     <div

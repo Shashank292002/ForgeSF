@@ -39,7 +39,9 @@
   background: var(--color-surface-elevated);
   color: var(--color-text-secondary);
 
-  transition: color var(--motion-fast), border-color var(--motion-fast);
+  transition:
+    color var(--motion-fast),
+    border-color var(--motion-fast);
 }
 
 .menuBtn:hover {
@@ -110,7 +112,9 @@
   background: var(--color-surface-elevated);
   color: var(--color-text-muted);
 
-  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+  transition:
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 
 .search:focus-within {
@@ -165,7 +169,10 @@
   background: var(--color-surface-elevated);
   color: var(--color-text-secondary);
 
-  transition: color var(--motion-fast), border-color var(--motion-fast), transform var(--motion-fast);
+  transition:
+    color var(--motion-fast),
+    border-color var(--motion-fast),
+    transform var(--motion-fast);
 }
 
 .iconBtn:hover {
@@ -197,7 +204,9 @@
 
   background: var(--color-surface-elevated);
 
-  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+  transition:
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 
 .orgPill:hover {

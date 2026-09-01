@@ -35,7 +35,9 @@ const SIDEBAR_TITLES: Record<string, string> = {
 export default function WorkspacePage() {
   const activeView = useWorkspaceStore((state) => state.activeView);
   const sidebarVisible = useWorkspaceStore((state) => state.sidebarVisible);
-  const setSidebarVisible = useWorkspaceStore((state) => state.setSidebarVisible);
+  const setSidebarVisible = useWorkspaceStore(
+    (state) => state.setSidebarVisible,
+  );
   const panelOpen = useWorkspaceStore((state) => state.panelOpen);
   const setPanelOpen = useWorkspaceStore((state) => state.setPanelOpen);
   const openFolder = useWorkspaceStore((state) => state.openFolder);
@@ -90,10 +92,7 @@ export default function WorkspacePage() {
               >
                 Open Folder
               </button>
-              <button
-                className="fw-btn"
-                onClick={() => void initWorkspace()}
-              >
+              <button className="fw-btn" onClick={() => void initWorkspace()}>
                 Retry
               </button>
             </div>
@@ -144,7 +143,12 @@ export default function WorkspacePage() {
               direction="vertical"
               autoSaveId="forge-ws-vertical"
             >
-              <Panel id="forge-ws-editor" order={1} defaultSize={74} minSize={25}>
+              <Panel
+                id="forge-ws-editor"
+                order={1}
+                defaultSize={74}
+                minSize={25}
+              >
                 <WorkspaceToolbar />
                 <WorkspaceEditor />
               </Panel>

@@ -1,0 +1,7 @@
+dist
+node_modules
+src-tauri/target
+src-tauri/gen
+public/fonts
+src/styles/fonts.css
+pnpm-lock.yaml

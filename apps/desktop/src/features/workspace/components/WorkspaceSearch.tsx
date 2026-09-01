@@ -54,12 +54,16 @@ export default function WorkspaceSearch() {
       <div className="workspace-search__results">
         {query.trim() ? (
           results.length > 0 ? (
-            results.map((file) => <SearchResult key={file.path} file={file} onSelect={selectFile} />)
+            results.map((file) => (
+              <SearchResult key={file.path} file={file} onSelect={selectFile} />
+            ))
           ) : (
             <div className="workspace-search__empty">No matches</div>
           )
         ) : (
-          <div className="workspace-search__empty">Type to search files in the workspace.</div>
+          <div className="workspace-search__empty">
+            Type to search files in the workspace.
+          </div>
         )}
       </div>
     </section>

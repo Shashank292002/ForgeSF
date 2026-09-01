@@ -23,10 +23,43 @@ const CATEGORIES = [
 ];
 
 const CATEGORY_MAP: Record<string, string[]> = {
-  objects: ["CustomObject", "CustomField", "CustomTab", "BusinessProcess", "RecordType", "ValidationRule", "SharingRule", "PicklistValue"],
-  code: ["ApexClass", "ApexTrigger", "ApexComponent", "ApexPage", "ApexTestSuite", "LightningComponentBundle", "StaticResource"],
-  ui: ["FlexiPage", "Layout", "QuickAction", "GlobalValueSet", "HomePageComponent", "Flow", "ContentAsset"],
-  automation: ["Flow", "Workflow", "ProcessBuilder", "EmailTemplate", "AutoResponseRules", "AssignmentRules", "EscalationRules"],
+  objects: [
+    "CustomObject",
+    "CustomField",
+    "CustomTab",
+    "BusinessProcess",
+    "RecordType",
+    "ValidationRule",
+    "SharingRule",
+    "PicklistValue",
+  ],
+  code: [
+    "ApexClass",
+    "ApexTrigger",
+    "ApexComponent",
+    "ApexPage",
+    "ApexTestSuite",
+    "LightningComponentBundle",
+    "StaticResource",
+  ],
+  ui: [
+    "FlexiPage",
+    "Layout",
+    "QuickAction",
+    "GlobalValueSet",
+    "HomePageComponent",
+    "Flow",
+    "ContentAsset",
+  ],
+  automation: [
+    "Flow",
+    "Workflow",
+    "ProcessBuilder",
+    "EmailTemplate",
+    "AutoResponseRules",
+    "AssignmentRules",
+    "EscalationRules",
+  ],
 };
 
 export default function MetadataSelector({
@@ -45,7 +78,7 @@ export default function MetadataSelector({
     if (activeCategory !== "all") {
       const keywords = CATEGORY_MAP[activeCategory] ?? [];
       list = list.filter((m) =>
-        keywords.some((k) => m.xmlName.toLowerCase().includes(k.toLowerCase()))
+        keywords.some((k) => m.xmlName.toLowerCase().includes(k.toLowerCase())),
       );
     }
     if (search.trim()) {
@@ -53,7 +86,7 @@ export default function MetadataSelector({
       list = list.filter(
         (m) =>
           m.xmlName.toLowerCase().includes(q) ||
-          m.directoryName.toLowerCase().includes(q)
+          m.directoryName.toLowerCase().includes(q),
       );
     }
     return list;
@@ -97,7 +130,7 @@ export default function MetadataSelector({
               key={cat.key}
               className={cls(
                 styles.categoryPill,
-                activeCategory === cat.key && styles.categoryActive
+                activeCategory === cat.key && styles.categoryActive,
               )}
               onClick={() => setActiveCategory(cat.key)}
             >
@@ -131,14 +164,21 @@ export default function MetadataSelector({
                 className={cls(styles.item, isSelected && styles.itemSelected)}
                 onClick={() => onToggle(m.xmlName)}
               >
-                <span className={cls(styles.checkbox, isSelected && styles.checkboxChecked)}>
+                <span
+                  className={cls(
+                    styles.checkbox,
+                    isSelected && styles.checkboxChecked,
+                  )}
+                >
                   {isSelected && <Check size={12} />}
                 </span>
                 <div className={styles.itemInfo}>
                   <span className={styles.itemName}>{m.xmlName}</span>
                   <span className={styles.itemDir}>{m.directoryName}</span>
                 </div>
-                {m.suffix && <span className={styles.itemSuffix}>.{m.suffix}</span>}
+                {m.suffix && (
+                  <span className={styles.itemSuffix}>.{m.suffix}</span>
+                )}
               </div>
             );
           })}
@@ -146,4 +186,3 @@ export default function MetadataSelector({
     </div>
   );
 }
-

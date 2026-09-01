@@ -20,7 +20,7 @@ interface Props {
   onSearch: (value: string) => void;
   onCategory: (value: MetadataCategoryKey | "all") => void;
   onToggle: (xmlName: string) => void;
-  onSelectAll: () => void;
+  onSelectAll: (visible: string[]) => void;
   onClear: () => void;
 }
 
@@ -37,7 +37,10 @@ export default function RetrieveSelectStep({
   onSelectAll,
   onClear,
 }: Props) {
-  const categoryCounts = useMemo(() => categoriesForTypes(metadata), [metadata]);
+  const categoryCounts = useMemo(
+    () => categoriesForTypes(metadata),
+    [metadata],
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -52,7 +55,9 @@ export default function RetrieveSelectStep({
     });
   }, [metadata, category, search]);
 
-  const allSelected = filtered.length > 0 && filtered.every((t) => selectedTypes.includes(t.xmlName));
+  const allSelected =
+    filtered.length > 0 &&
+    filtered.every((t) => selectedTypes.includes(t.xmlName));
 
   if (loading) {
     return (
@@ -94,12 +99,25 @@ export default function RetrieveSelectStep({
           )}
         </div>
 
-        <div className="mr-footer__actions" style={{ padding: 0, border: 0, background: "transparent" }}>
-          <button type="button" className="mr-btn mr-btn--ghost" onClick={onClear} disabled={selectedTypes.length === 0}>
+        <div
+          className="mr-footer__actions"
+          style={{ padding: 0, border: 0, background: "transparent" }}
+        >
+          <button
+            type="button"
+            className="mr-btn mr-btn--ghost"
+            onClick={onClear}
+            disabled={selectedTypes.length === 0}
+          >
             Clear
           </button>
-          <button type="button" className="mr-btn mr-btn--ghost" onClick={onSelectAll}>
-            {allSelected ? "Deselect all" : "Select all"}
+          <button
+            type="button"
+            className="mr-btn mr-btn--ghost"
+            onClick={() => onSelectAll(filtered.map((type) => type.xmlName))}
+            disabled={filtered.length === 0}
+          >
+            {allSelected ? "Deselect all" : `Select all (${filtered.length})`}
           </button>
         </div>
       </div>
@@ -110,7 +128,10 @@ export default function RetrieveSelectStep({
           className={`mr-cat ${category === "all" ? "is-active" : ""}`}
           onClick={() => onCategory("all")}
         >
-          <span className="mr-cat__dot" style={{ background: "var(--mr-text-2)" }} />
+          <span
+            className="mr-cat__dot"
+            style={{ background: "var(--mr-text-2)" }}
+          />
           All
           <span className="mr-cat__count">{metadata.length}</span>
         </button>
@@ -123,7 +144,10 @@ export default function RetrieveSelectStep({
               className={`mr-cat ${category === key ? "is-active" : ""}`}
               onClick={() => onCategory(category === key ? "all" : key)}
             >
-              <span className="mr-cat__dot" style={{ background: info.color }} />
+              <span
+                className="mr-cat__dot"
+                style={{ background: info.color }}
+              />
               {info.label}
               <span className="mr-cat__count">{categoryCounts[key]}</span>
             </button>

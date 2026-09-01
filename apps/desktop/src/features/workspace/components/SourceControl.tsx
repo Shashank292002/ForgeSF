@@ -1,5 +1,13 @@
 import { useMemo } from "react";
-import { Check, CloudOff, GitBranch, Loader2, RotateCw, Save, Undo2 } from "lucide-react";
+import {
+  Check,
+  CloudOff,
+  GitBranch,
+  Loader2,
+  RotateCw,
+  Save,
+  Undo2,
+} from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { useOrganizationStore } from "../../../store/orgStore";
@@ -65,7 +73,8 @@ export default function SourceControl() {
                 </div>
               ) : (
                 <div className="workspace-scm__count">
-                  {dirtyPaths.length} changed file{dirtyPaths.length === 1 ? "" : "s"}
+                  {dirtyPaths.length} changed file
+                  {dirtyPaths.length === 1 ? "" : "s"}
                 </div>
               )}
             </div>
@@ -81,7 +90,9 @@ export default function SourceControl() {
                       title={path}
                     >
                       <span className="workspace-scm__marker">M</span>
-                      <span className="workspace-scm__name">{getBaseName(path)}</span>
+                      <span className="workspace-scm__name">
+                        {getBaseName(path)}
+                      </span>
                     </button>
                     <button
                       type="button"

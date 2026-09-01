@@ -1,4 +1,13 @@
-import { Settings as SettingsIcon, Moon, Sun, Monitor, Palette, Info, DatabaseZap } from "lucide-react";
+import {
+  Settings as SettingsIcon,
+  Moon,
+  Sun,
+  Monitor,
+  Palette,
+  Info,
+  DatabaseZap,
+} from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import { useOrganizationStore } from "../../store/orgStore";
 import { Card, Badge, Button } from "../../components/ui";
@@ -8,6 +17,7 @@ import styles from "./SettingsPage.module.css";
 type Theme = "dark" | "light" | "system";
 
 export default function SettingsPage() {
+  const navigate = useNavigate();
   const organization = useOrganizationStore((s) => s.selectedOrganization);
   const organizations = useOrganizationStore((s) => s.organizations);
 
@@ -44,6 +54,13 @@ export default function SettingsPage() {
             ).map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
+                type="button"
+                disabled={key !== theme}
+                title={
+                  key === theme
+                    ? "Current theme"
+                    : "Theme switching is not implemented yet"
+                }
                 className={`${styles.themeOption} ${
                   theme === key ? styles.themeActive : ""
                 }`}
@@ -58,7 +75,10 @@ export default function SettingsPage() {
             <Badge tone="info" dot>
               Coming soon
             </Badge>
-            <span>Light theme is on the roadmap — dark mode is optimized for developers.</span>
+            <span>
+              Light theme is on the roadmap — dark mode is optimized for
+              developers.
+            </span>
           </div>
         </Card>
 
@@ -88,15 +108,21 @@ export default function SettingsPage() {
             </ul>
           ) : (
             <p className={styles.emptyText}>
-              No organization connected. Visit the Organizations page to connect one.
+              No organization connected. Visit the Organizations page to connect
+              one.
             </p>
           )}
 
           <div className={styles.metaRow}>
             <span>
-              {organizations.length} org{organizations.length === 1 ? "" : "s"} connected
+              {organizations.length} org{organizations.length === 1 ? "" : "s"}{" "}
+              connected
             </span>
-            <Button variant="secondary" size="sm">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => navigate("/organizations")}
+            >
               Manage Orgs
             </Button>
           </div>

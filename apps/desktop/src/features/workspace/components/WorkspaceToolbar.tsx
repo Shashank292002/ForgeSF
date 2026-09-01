@@ -72,7 +72,11 @@ export default function WorkspaceToolbar() {
           onClick={() => void runDeploy(organization?.username ?? "", false)}
           disabled={!organization || deploying}
         >
-          {deploying ? <Loader2 size={13} className="spinning" /> : <Rocket size={13} />}
+          {deploying ? (
+            <Loader2 size={13} className="spinning" />
+          ) : (
+            <Rocket size={13} />
+          )}
           Deploy
         </button>
       </div>

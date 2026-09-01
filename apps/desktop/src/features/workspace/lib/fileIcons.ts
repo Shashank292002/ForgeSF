@@ -10,7 +10,6 @@ import {
   FileText,
   FileType,
   Folder,
-  FolderOpen,
   FunctionSquare,
   GitBranch,
   KeyRound,
@@ -38,57 +37,63 @@ export function iconForFile(
   if (type === "folder") return Folder;
 
   const lower = name.toLowerCase();
-  const ext = lower.split(".").pop() ?? "";
-  const full = lower;
 
-  // Salesforce metadata (suffix-based)
-  switch (ext) {
+  // SFDX source format names metadata `Thing.<suffix>-meta.xml`, so the final
+  // extension is almost always "xml". Strip the wrapper first and match on the
+  // real suffix — otherwise every object, field, layout and flow fell through
+  // to the generic XML icon.
+  const stem = lower.endsWith("-meta.xml") ? lower.slice(0, -9) : lower;
+  const suffix = stem.includes(".") ? stem.split(".").pop()! : "";
+
+  // Salesforce metadata (suffix-based). Labels are lower-case because `suffix`
+  // is; the previous map used camelCase arms that could never match.
+  switch (suffix) {
     case "cls":
       return Cpu;
     case "trigger":
       return Zap;
     case "object":
-    case "objectTranslation":
+    case "objecttranslation":
       return Database;
     case "field":
       return Table2;
     case "profile":
-    case "permissionSet":
     case "permissionset":
       return ShieldAlert;
     case "layout":
       return Layout;
-    case "recordType":
+    case "recordtype":
       return Link2;
     case "flow":
-    case "flowDefinition":
+    case "flowdefinition":
       return Workflow;
     case "process":
       return GitBranch;
     case "resource":
-    case "resourceBundle":
+    case "resourcebundle":
       return Package;
     case "labels":
       return BookOpen;
-    case "quickAction":
+    case "quickaction":
       return Zap;
-    case "globalValueSet":
-    case "standardValueSet":
+    case "globalvalueset":
+    case "standardvalueset":
       return Package2;
-    case "remoteSite":
+    case "remotesite":
       return Cloud;
-    case "customMetadata":
+    case "custommetadata":
       return Database;
-    case "static":
-      return FileText;
     case "function":
       return FunctionSquare;
+    case "page":
+    case "component":
+    case "cmp":
+      return CodeXml;
     default:
       break;
   }
 
-  // LWC / Aura folders
-  if (full.endsWith("__c")) return CodeXml;
+  const ext = lower.includes(".") ? lower.split(".").pop()! : "";
 
   // Generic by extension
   switch (ext) {
@@ -123,7 +128,3 @@ export function iconForFile(
       return FileText;
   }
 }
-
-export const IconFolder = Folder;
-export const IconFolderOpen = FolderOpen;
-export const IconSearch = CodeXml;

@@ -31,7 +31,12 @@
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
 
-  background: linear-gradient(120deg, rgba(109, 91, 255, 0.16), rgba(8, 12, 24, 0.4) 45%, rgba(34, 211, 238, 0.1));
+  background: linear-gradient(
+    120deg,
+    rgba(109, 91, 255, 0.16),
+    rgba(8, 12, 24, 0.4) 45%,
+    rgba(34, 211, 238, 0.1)
+  );
 
   box-shadow: var(--shadow-sm);
 }
@@ -42,7 +47,11 @@
   width: 480px;
   height: 480px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(157, 77, 255, 0.24), transparent 65%);
+  background: radial-gradient(
+    circle,
+    rgba(157, 77, 255, 0.24),
+    transparent 65%
+  );
   pointer-events: none;
 }
 
@@ -91,7 +100,9 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--color-text-secondary);
-  transition: color var(--motion-fast), gap var(--motion-fast);
+  transition:
+    color var(--motion-fast),
+    gap var(--motion-fast);
 }
 
 .heroLink:hover {
@@ -240,7 +251,10 @@
   background: var(--color-glass);
   backdrop-filter: blur(10px);
 
-  transition: transform var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast);
+  transition:
+    transform var(--motion-fast),
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 
 .quickCard:hover {
@@ -284,7 +298,9 @@
 .quickArrow {
   margin-left: auto;
   color: var(--color-text-muted);
-  transition: color var(--motion-fast), transform var(--motion-fast);
+  transition:
+    color var(--motion-fast),
+    transform var(--motion-fast);
 }
 
 .quickCard:hover .quickArrow {
@@ -383,4 +399,3 @@
     font-size: 40px;
   }
 }
-

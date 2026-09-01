@@ -43,3 +43,7 @@ desktop.ini
 
 # Local Salesforce development workspaces
 apps/desktop/workspace/
+
+# Stray workspace created at the repo root by the old CWD-dependent
+# workspace resolution (see get_workspace in src-tauri/src/commands.rs).
+/workspace/

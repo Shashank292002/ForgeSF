@@ -32,13 +32,13 @@ export function buildRetrieveSpecs(
 export function memberSummary(
   kind: string,
   selectedMembers: Record<string, string[]>,
-  availableCounts: Record<string, unknown>,
+  availableComponents: Record<string, string[]>,
 ): { label: string; narrowed: boolean } {
   const members = selectedMembers[kind] ?? [];
-  const available =
-    typeof availableCounts[kind] === "number"
-      ? (availableCounts[kind] as number)
-      : undefined;
+  // Callers pass the components cache — arrays, not counts. The old signature
+  // asked for `Record<string, unknown>` and tested `typeof … === "number"`,
+  // which was never true, so the "3 of 120" label could never render.
+  const available = availableComponents[kind]?.length;
   if (members.length === 0) {
     return {
       label: available !== undefined ? `all (${available})` : "all components",

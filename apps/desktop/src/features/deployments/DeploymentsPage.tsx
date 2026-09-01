@@ -1,14 +1,30 @@
 import { useState, useEffect, useCallback } from "react";
-import { Rocket, GitCommit, GitBranch, Terminal, RefreshCw, Sparkles } from "lucide-react";
+import {
+  Rocket,
+  GitCommit,
+  GitBranch,
+  Terminal,
+  RefreshCw,
+  Sparkles,
+} from "lucide-react";
 import { useOrganizationStore } from "../../store/orgStore";
 import { useMetadataStore } from "../../store/metadataStore";
-import { listMetadataTypes, deployWorkspace } from "../../services/tauri";
+import {
+  listMetadataTypes,
+  deployWorkspace,
+  deployQuick,
+} from "../../services/tauri";
 import { Badge, Card } from "../../components/ui";
 import OrgConnector from "./components/OrgConnector";
 import MetadataSelector from "./components/MetadataSelector";
 import DeploymentPipeline from "./components/DeploymentPipeline";
 import DeploymentHistory from "./components/DeploymentHistory";
-import type { PipelineStep, PipelineStatus, DeploymentRecord, DeployPhase } from "./types";
+import type {
+  PipelineStep,
+  PipelineStatus,
+  DeploymentRecord,
+  DeployPhase,
+} from "./types";
 import type { Organization } from "../org-manager/types";
 import styles from "./DeploymentsPage.module.css";
 
@@ -23,15 +39,16 @@ export default function DeploymentsPage() {
   const [sourceOrg, setSourceOrg] = useState<Organization | null>(null);
   const [targetOrg, setTargetOrg] = useState<Organization | null>(null);
 
+  // One shared selection model with the retrieve flow; `search` and `loading`
+  // are this screen's own UI state and no longer live in the global store.
   const metadataTypes = useMetadataStore((s) => s.metadata);
-  const selectedMetadata = useMetadataStore((s) => s.selectedMetadata);
-  const search = useMetadataStore((s) => s.search);
-  const loading = useMetadataStore((s) => s.loading);
+  const selectedMetadata = useMetadataStore((s) => s.selectedTypes);
   const setMetadata = useMetadataStore((s) => s.setMetadata);
-  const toggleMetadata = useMetadataStore((s) => s.toggleMetadata);
-  const setSearch = useMetadataStore((s) => s.setSearch);
-  const setLoading = useMetadataStore((s) => s.setLoading);
-  const clearSelection = useMetadataStore((s) => s.clearSelection);
+  const toggleMetadata = useMetadataStore((s) => s.toggleType);
+  const clearSelection = useMetadataStore((s) => s.clearTypes);
+
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const [phase, setPhase] = useState<DeployPhase>("idle");
   const [logs, setLogs] = useState("");
@@ -39,25 +56,70 @@ export default function DeploymentsPage() {
   const [commitMessage, setCommitMessage] = useState("");
   const [history, setHistory] = useState<DeploymentRecord[]>([]);
   const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>([
-    { id: "validate", label: "Validate", description: "Run deployment validation (check-only)", status: "pending" },
-    { id: "build", label: "Build Package", description: "Assemble metadata into deployment package", status: "pending" },
-    { id: "deploy", label: "Deploy", description: "Deploy metadata to target org", status: "pending" },
-    { id: "verify", label: "Verify", description: "Verify deployment success in target org", status: "pending" },
+    {
+      id: "validate",
+      label: "Validate",
+      description: "Run deployment validation (check-only)",
+      status: "pending",
+    },
+    {
+      id: "build",
+      label: "Build Package",
+      description: "Assemble metadata into deployment package",
+      status: "pending",
+    },
+    {
+      id: "deploy",
+      label: "Deploy",
+      description: "Deploy metadata to target org",
+      status: "pending",
+    },
+    {
+      id: "verify",
+      label: "Verify",
+      description: "Verify deployment success in target org",
+      status: "pending",
+    },
   ]);
   const [currentStep, setCurrentStep] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  // Load metadata when source org changes
+  // Loads the source org's metadata types. The `cancelled` flag drops a
+  // superseded org's response, and the failure is surfaced in the console
+  // instead of the old `.catch(() => {})`, which showed an empty selector with
+  // no explanation.
   useEffect(() => {
     if (!sourceOrg) return;
-    setLoading(true);
-    listMetadataTypes(sourceOrg.username)
-      .then((types) => {
-        setMetadata(types);
-        clearSelection();
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [sourceOrg]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    let cancelled = false;
+    const { username, alias } = sourceOrg;
+
+    const loadTypes = async () => {
+      setLoading(true);
+      try {
+        const types = await listMetadataTypes(username);
+        // setMetadata clears the selection itself when the org changed.
+        if (!cancelled) setMetadata(username, types);
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : String(error);
+        setLogs(
+          (p) =>
+            p +
+            `
+[${new Date().toLocaleTimeString()}] ⚠ Could not load metadata types from ${alias}: ${message}
+`,
+        );
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void loadTypes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceOrg, setMetadata]);
 
   const handleSwap = useCallback(() => {
     const temp = sourceOrg;
@@ -67,14 +129,31 @@ export default function DeploymentsPage() {
 
   const updateStepStatus = (stepId: string, status: PipelineStatus) => {
     setPipelineSteps((prev) =>
-      prev.map((s) => (s.id === stepId ? { ...s, status } : s))
+      prev.map((s) => (s.id === stepId ? { ...s, status } : s)),
     );
   };
 
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
   const runDeployment = async () => {
     if (!sourceOrg || !targetOrg || selectedMetadata.length === 0) return;
+
+    // Deploying an org onto itself is never intended and is destructive.
+    if (sourceOrg.id === targetOrg.id) {
+      setLogs(
+        (p) =>
+          p +
+          `\n[${new Date().toLocaleTimeString()}] ⚠ Source and target are the same org (${targetOrg.alias}). Pick a different target.\n`,
+      );
+      return;
+    }
+
+    // The deploy below writes to a real org. Name it explicitly — the org
+    // cards cannot be trusted to distinguish production from sandbox yet.
+    const confirmed = window.confirm(
+      `Deploy the local workspace to:\n\n` +
+        `  ${targetOrg.alias}\n  ${targetOrg.username}\n  ${targetOrg.instanceUrl}\n\n` +
+        `This writes metadata to that org. Continue?`,
+    );
+    if (!confirmed) return;
 
     setRunning(true);
     setLogs("");
@@ -82,82 +161,126 @@ export default function DeploymentsPage() {
     setDeployVersion(version);
 
     setPipelineSteps((prev) =>
-      prev.map((s) => ({ ...s, status: s.id === "validate" ? "active" : "pending" }))
+      prev.map((s) => ({
+        ...s,
+        status: s.id === "validate" ? "active" : "pending",
+      })),
     );
     setPhase("validating");
-    setCurrentStep("validate");
+
+    // Tracked locally, not via `currentStep`: the state setter does not update
+    // the value captured by this closure, so the catch block used to blame
+    // whichever step the closure was created with (always "deploy").
+    let step = "validate";
+    const startedAt = Date.now();
+    const stamp = () => `[${new Date().toLocaleTimeString()}]`;
+
+    const record = (status: DeploymentRecord["status"]) => {
+      const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      setHistory((prev) => [
+        {
+          id: `dep-${Date.now()}`,
+          version,
+          message: commitMessage || `Deploy ${selectedMetadata.length} types`,
+          author: sourceOrg.alias,
+          sourceOrg: sourceOrg.alias,
+          targetOrg: targetOrg.alias,
+          status,
+          metadataCount: selectedMetadata.length,
+          timestamp: new Date().toLocaleString(),
+          duration: `${seconds}s`,
+        },
+        ...prev,
+      ]);
+    };
 
     try {
-      // Step 1: Validate
-      setCurrentStep("validate");
+      // ── Validate ──────────────────────────────────────────────
+      // Runs `sf project deploy validate`, which registers the deployment
+      // server-side and hands back a job id.
+      setCurrentStep(step);
       updateStepStatus("validate", "active");
-      setLogs((p) => p + `[${new Date().toLocaleTimeString()}] 🔍 Validating against ${targetOrg.alias}...\n`);
-      await sleep(800);
-      const valOut = await deployWorkspace(sourceOrg.username, true);
-      setLogs((p) => p + valOut + "\n");
-      await sleep(400);
+      setLogs(
+        (p) =>
+          p +
+          `${stamp()} 🔍 Validating ${selectedMetadata.length} metadata type(s) against ${targetOrg.alias}...\n`,
+      );
+
+      const validation = await deployWorkspace(
+        targetOrg.username,
+        true,
+        selectedMetadata,
+      );
+      setLogs((p) => p + validation.summary + "\n");
       updateStepStatus("validate", "success");
-      setLogs((p) => p + `[${new Date().toLocaleTimeString()}] ✅ Validation passed!\n\n`);
+      setLogs((p) => p + `${stamp()} ✅ Validation passed.\n\n`);
 
-      // Step 2: Build
+      // ── Prepare ───────────────────────────────────────────────
+      // No fake build step: either the validation produced a promotable job
+      // id, or the deploy below has to upload from scratch.
+      step = "build";
       setPhase("building");
-      setCurrentStep("build");
+      setCurrentStep(step);
       updateStepStatus("build", "active");
-      setLogs((p) => p + `[${new Date().toLocaleTimeString()}] 📦 Building package (${selectedMetadata.length} types)...\n`);
-      await sleep(1200);
+      setLogs(
+        (p) =>
+          p +
+          (validation.jobId
+            ? `${stamp()} 📦 Validated deployment ${validation.jobId} is ready to promote.\n\n`
+            : `${stamp()} 📦 No promotable job id returned — the deploy will upload the source again.\n\n`),
+      );
       updateStepStatus("build", "success");
-      setLogs((p) => p + `[${new Date().toLocaleTimeString()}] ✅ Package built\n\n`);
 
-      // Step 3: Deploy
+      // ── Deploy ────────────────────────────────────────────────
+      step = "deploy";
       setPhase("deploying");
-      setCurrentStep("deploy");
+      setCurrentStep(step);
       updateStepStatus("deploy", "active");
-      setLogs((p) => p + `[${new Date().toLocaleTimeString()}] 🚀 Deploying to ${targetOrg.alias}...\n`);
-      const depOut = await deployWorkspace(sourceOrg.username, false);
-      setLogs((p) => p + depOut + "\n");
-      await sleep(600);
+      setLogs(
+        (p) =>
+          p +
+          `${stamp()} 🚀 ${
+            validation.jobId ? "Promoting validated deployment" : "Deploying"
+          } to ${targetOrg.alias}...\n`,
+      );
+
+      const deployment = validation.jobId
+        ? await deployQuick(targetOrg.username, validation.jobId)
+        : await deployWorkspace(targetOrg.username, false, selectedMetadata);
+
+      setLogs((p) => p + deployment.summary + "\n");
       updateStepStatus("deploy", "success");
-      setLogs((p) => p + `[${new Date().toLocaleTimeString()}] ✅ Deployment done!\n\n`);
 
-      // Step 4: Verify
+      // ── Verify ────────────────────────────────────────────────
+      // The CLI already waited for the deploy to reach a terminal state, so
+      // this reports that state instead of sleeping and claiming success.
+      step = "verify";
       setPhase("verifying");
-      setCurrentStep("verify");
+      setCurrentStep(step);
       updateStepStatus("verify", "active");
-      setLogs((p) => p + `[${new Date().toLocaleTimeString()}] 🔎 Verifying in target org...\n`);
-      await sleep(1000);
+
+      const succeeded = /^(Succeeded|SucceededPartial)$/i.test(
+        deployment.status,
+      );
+      setLogs(
+        (p) => p + `${stamp()} 🔎 Target org reports: ${deployment.status}\n`,
+      );
+
+      if (!succeeded) {
+        throw new Error(
+          `Deployment finished with status "${deployment.status}".`,
+        );
+      }
+
       updateStepStatus("verify", "success");
-      setLogs((p) => p + `[${new Date().toLocaleTimeString()}] ✅ All checks passed!\n`);
       setPhase("done");
-
-      setHistory((prev) => [{
-        id: `dep-${Date.now()}`,
-        version,
-        message: commitMessage || `Deploy ${selectedMetadata.length} types`,
-        author: sourceOrg.alias,
-        sourceOrg: sourceOrg.alias,
-        targetOrg: targetOrg.alias,
-        status: "success",
-        metadataCount: selectedMetadata.length,
-        timestamp: new Date().toLocaleString(),
-        duration: "~4.2s",
-      }, ...prev]);
-    } catch (err: any) {
-      setLogs((p) => p + `\n❌ Error: ${String(err)}\n`);
-      updateStepStatus(currentStep ?? "deploy", "failed");
+      record("success");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setLogs((p) => p + `\n❌ ${message}\n`);
+      updateStepStatus(step, "failed");
       setPhase("error");
-
-      setHistory((prev) => [{
-        id: `dep-${Date.now()}`,
-        version,
-        message: commitMessage || `Deploy ${selectedMetadata.length} types`,
-        author: sourceOrg.alias,
-        sourceOrg: sourceOrg.alias,
-        targetOrg: targetOrg.alias,
-        status: "failed",
-        metadataCount: selectedMetadata.length,
-        timestamp: new Date().toLocaleString(),
-        duration: "Failed",
-      }, ...prev]);
+      record("failed");
     } finally {
       setRunning(false);
       setCurrentStep(null);
@@ -165,14 +288,25 @@ export default function DeploymentsPage() {
   };
 
   const handleRollback = (id: string) => {
-    setLogs((p) => p + `\n[${new Date().toLocaleTimeString()}] 🔄 Rollback for ${id}...\n`);
+    setLogs(
+      (p) =>
+        p + `\n[${new Date().toLocaleTimeString()}] 🔄 Rollback for ${id}...\n`,
+    );
   };
 
   const handleViewDetails = (id: string) => {
-    setLogs((p) => p + `\n[${new Date().toLocaleTimeString()}] 📋 Details for ${id}...\n`);
+    setLogs(
+      (p) =>
+        p + `\n[${new Date().toLocaleTimeString()}] 📋 Details for ${id}...\n`,
+    );
   };
 
-  const canDeploy = sourceOrg && targetOrg && selectedMetadata.length > 0 && !running;
+  const canDeploy =
+    sourceOrg &&
+    targetOrg &&
+    sourceOrg.id !== targetOrg.id &&
+    selectedMetadata.length > 0 &&
+    !running;
 
   return (
     <div className={styles.page}>
@@ -185,7 +319,8 @@ export default function DeploymentsPage() {
           <div>
             <h1 className={styles.title}>Deployments</h1>
             <p className={styles.subtitle}>
-              Deploy metadata across Salesforce organizations with pipeline control
+              Deploy metadata across Salesforce organizations with pipeline
+              control
             </p>
           </div>
         </div>
@@ -193,9 +328,7 @@ export default function DeploymentsPage() {
           <Badge tone="info" dot>
             {organizations.length} orgs
           </Badge>
-          {deployVersion && (
-            <Badge tone="purple">{deployVersion}</Badge>
-          )}
+          {deployVersion && <Badge tone="purple">{deployVersion}</Badge>}
         </div>
       </header>
 
@@ -274,7 +407,9 @@ export default function DeploymentsPage() {
                 <Terminal size={14} />
                 <span>Console Output</span>
                 {phase !== "idle" && (
-                  <span className={`${styles.phaseBadge} ${styles[`phase-${phase}`]}`}>
+                  <span
+                    className={`${styles.phaseBadge} ${styles[`phase-${phase}`]}`}
+                  >
                     {phase === "validating" && "Validating"}
                     {phase === "building" && "Building Package"}
                     {phase === "deploying" && "Deploying"}
@@ -285,7 +420,10 @@ export default function DeploymentsPage() {
                 )}
               </div>
               {logs && (
-                <button className={styles.clearConsole} onClick={() => setLogs("")}>
+                <button
+                  className={styles.clearConsole}
+                  onClick={() => setLogs("")}
+                >
                   <RefreshCw size={12} />
                   Clear
                 </button>
@@ -296,7 +434,10 @@ export default function DeploymentsPage() {
                 {logs || (
                   <span className={styles.consolePlaceholder}>
                     <Sparkles size={16} />
-                    <span>Ready — select source/target orgs and metadata, then run a deployment</span>
+                    <span>
+                      Ready — select source/target orgs and metadata, then run a
+                      deployment
+                    </span>
                   </span>
                 )}
               </pre>
@@ -312,7 +453,11 @@ export default function DeploymentsPage() {
             <button
               className={styles.quickActionBtn}
               onClick={() => {
-                setLogs((p) => p + `\n[${new Date().toLocaleTimeString()}] 📊 Generating diff report...\n`);
+                setLogs(
+                  (p) =>
+                    p +
+                    `\n[${new Date().toLocaleTimeString()}] 📊 Generating diff report...\n`,
+                );
               }}
               disabled={!sourceOrg || !targetOrg}
             >

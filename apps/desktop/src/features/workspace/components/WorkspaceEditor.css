@@ -55,7 +55,11 @@
   display: grid;
   place-items: center;
   border-radius: 16px;
-  background: linear-gradient(135deg, rgba(109, 91, 255, 0.18), rgba(157, 77, 255, 0.12));
+  background: linear-gradient(
+    135deg,
+    rgba(109, 91, 255, 0.18),
+    rgba(157, 77, 255, 0.12)
+  );
   color: var(--fw-brand, #6d5bff);
   box-shadow: 0 14px 34px rgba(109, 91, 255, 0.22);
   margin-bottom: 8px;
@@ -108,7 +112,9 @@
   flex-shrink: 0;
 }
 
-.workspace-editor__sep { color: var(--fw-border-strong); }
+.workspace-editor__sep {
+  color: var(--fw-border-strong);
+}
 
 .workspace-editor__file {
   color: var(--fw-text-secondary);

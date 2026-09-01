@@ -69,9 +69,10 @@ export function mapTreePaths(
 
   return nodes.map((node) => {
     const nodePath = normalizePath(node.path);
-    const nextPath = nodePath === fromPath || nodePath.startsWith(`${fromPath}/`)
-      ? `${toPath}${nodePath.slice(fromPath.length)}`
-      : nodePath;
+    const nextPath =
+      nodePath === fromPath || nodePath.startsWith(`${fromPath}/`)
+        ? `${toPath}${nodePath.slice(fromPath.length)}`
+        : nodePath;
 
     return {
       ...node,

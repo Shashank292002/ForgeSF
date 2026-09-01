@@ -22,16 +22,34 @@ export default function WorkspaceTabs() {
 
   // Keep the active tab visible when many files are open.
   useEffect(() => {
-    activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    activeTabRef.current?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
   }, [selectedFile]);
+
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!menu) return;
+    // Only close on clicks *outside* the menu. Closing on any mousedown
+    // unmounted the menu before the button's click event could fire, so every
+    // item in it was unreachable.
+    const onPointerDown = (event: MouseEvent) => {
+      if (menuRef.current?.contains(event.target as Node)) return;
+      setMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenu(null);
+    };
     const close = () => setMenu(null);
-    window.addEventListener("mousedown", close);
+
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
     window.addEventListener("blur", close);
     return () => {
-      window.removeEventListener("mousedown", close);
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("blur", close);
     };
   }, [menu]);
@@ -54,7 +72,9 @@ export default function WorkspaceTabs() {
       if (dirty[file]) {
         const name = getBaseName(file);
         if (
-          !window.confirm(`"${name}" has unsaved changes.\n\nClose without saving?`)
+          !window.confirm(
+            `"${name}" has unsaved changes.\n\nClose without saving?`,
+          )
         ) {
           continue;
         }
@@ -68,7 +88,9 @@ export default function WorkspaceTabs() {
       if (dirty[file]) {
         const name = getBaseName(file);
         if (
-          !window.confirm(`"${name}" has unsaved changes.\n\nClose without saving?`)
+          !window.confirm(
+            `"${name}" has unsaved changes.\n\nClose without saving?`,
+          )
         ) {
           continue;
         }
@@ -129,14 +151,36 @@ export default function WorkspaceTabs() {
       </div>
 
       {menu && (
-        <div className="fw-tabs-menu" style={{ left: menu.x, top: menu.y }}>
-          <button type="button" onClick={() => { requestClose(menu.path); setMenu(null); }}>
+        <div
+          ref={menuRef}
+          className="fw-tabs-menu"
+          style={{ left: menu.x, top: menu.y }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              requestClose(menu.path);
+              setMenu(null);
+            }}
+          >
             Close
           </button>
-          <button type="button" onClick={() => { closeOthers(menu.path); setMenu(null); }}>
+          <button
+            type="button"
+            onClick={() => {
+              closeOthers(menu.path);
+              setMenu(null);
+            }}
+          >
             Close Others
           </button>
-          <button type="button" onClick={() => { closeAll(); setMenu(null); }}>
+          <button
+            type="button"
+            onClick={() => {
+              closeAll();
+              setMenu(null);
+            }}
+          >
             Close All
           </button>
         </div>

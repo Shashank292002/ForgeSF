@@ -244,7 +244,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           prev.selectedFile &&
           (available.has(prev.selectedFile) || prev.dirty[prev.selectedFile])
             ? prev.selectedFile
-            : nextOpenFiles[0] ?? null;
+            : (nextOpenFiles[0] ?? null);
 
         set({
           files: nextFiles,
@@ -275,10 +275,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         ? state.openFiles
         : [...state.openFiles, cleanPath];
 
+      // Deliberately does not switch `activeView`. Forcing it to "explorer"
+      // meant clicking a search result closed the Search panel, so you could
+      // never open a second result without searching again. Callers that do
+      // want the tree revealed call `revealFile`.
       set({
         selectedFile: cleanPath,
         openFiles: nextOpen,
-        activeView: "explorer",
       });
 
       // Lazy-load the file content on first open.
@@ -304,7 +307,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             },
           }));
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           set((current) => ({
             loadingContent: {
               ...current.loadingContent,
@@ -322,14 +326,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     closeFile: (path) =>
       set((state) => {
-        const nextOpenFiles = state.openFiles.filter(
-          (file) => file !== path,
-        );
+        const nextOpenFiles = state.openFiles.filter((file) => file !== path);
         const isDirty = Boolean(state.dirty[path]);
 
         const nextSelected =
           state.selectedFile === path
-            ? nextOpenFiles[0] ?? null
+            ? (nextOpenFiles[0] ?? null)
             : state.selectedFile;
 
         // Drop caches for non-dirty files to keep memory low.
@@ -365,14 +367,26 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         ),
       })),
 
+    /**
+     * Tracks buffer edits. A file that is edited back to its saved content is
+     * *removed* from `dirty` rather than set to `false` — every consumer
+     * (source control list, save-all buttons, status bar, activity-bar badge)
+     * counts keys, so a lingering `false` entry made the file look modified
+     * forever and made `saveAll` re-write clean files to disk.
+     */
     updateFileContent: (path, content) =>
-      set((state) => ({
-        fileContents: { ...state.fileContents, [path]: content },
-        dirty: {
-          ...state.dirty,
-          [path]: state.savedContents[path] !== content,
-        },
-      })),
+      set((state) => {
+        const nextDirty = { ...state.dirty };
+        if (state.savedContents[path] !== content) {
+          nextDirty[path] = true;
+        } else {
+          delete nextDirty[path];
+        }
+        return {
+          fileContents: { ...state.fileContents, [path]: content },
+          dirty: nextDirty,
+        };
+      }),
 
     saveFile: async (path) => {
       const content = get().fileContents[path];
@@ -391,6 +405,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           };
         });
         get().appendLog(`Saved ${path}`, "success", "terminal");
+        // Return to idle so the status bar stops claiming "Saved" forever.
+        window.setTimeout(() => {
+          if (useWorkspaceStore.getState().saveStatus === "saved") {
+            useWorkspaceStore.setState({ saveStatus: "idle" });
+          }
+        }, 2000);
         return true;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -405,8 +425,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     saveAll: async () => {
-      const dirtyPaths = Object.keys(get().dirty);
-      await Promise.all(dirtyPaths.map((path) => get().saveFile(path)));
+      // Only genuinely dirty buffers, and sequential: running these through
+      // Promise.all had every save racing on the single `saveStatus` field.
+      const dirtyPaths = Object.entries(get().dirty)
+        .filter(([, isDirty]) => isDirty)
+        .map(([path]) => path);
+
+      for (const path of dirtyPaths) {
+        await get().saveFile(path);
+      }
     },
 
     revertFile: async (path) => {
@@ -508,7 +535,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             openFiles: nextOpenFiles,
             selectedFile:
               state.selectedFile && inOpen(state.selectedFile)
-                ? nextOpenFiles[0] ?? null
+                ? (nextOpenFiles[0] ?? null)
                 : state.selectedFile,
             fileContents: nextContents,
             savedContents: nextSaved,
@@ -519,7 +546,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         return true;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        get().appendLog(`Failed to delete ${target} — ${message}`, "error", "terminal");
+        get().appendLog(
+          `Failed to delete ${target} — ${message}`,
+          "error",
+          "terminal",
+        );
         return false;
       }
     },
@@ -559,7 +590,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         return true;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        get().appendLog(`Failed to rename ${from} — ${message}`, "error", "terminal");
+        get().appendLog(
+          `Failed to rename ${from} — ${message}`,
+          "error",
+          "terminal",
+        );
         return false;
       }
     },
@@ -584,7 +619,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         get().appendLog(`Opened folder — ${root}`, "success", "system");
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        get().appendLog(`Failed to open folder — ${message}`, "error", "system");
+        get().appendLog(
+          `Failed to open folder — ${message}`,
+          "error",
+          "system",
+        );
       }
     },
 
@@ -597,8 +636,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       set({ deploying: true });
 
       try {
-        const out = await deployWorkspace(username, checkOnly);
-        get().appendLog(out, "success", "deploy");
+        const outcome = await deployWorkspace(username, checkOnly);
+        get().appendLog(outcome.summary, "success", "deploy");
+        if (checkOnly && outcome.jobId) {
+          get().appendLog(
+            `Validated — job ${outcome.jobId}. Deploy from the Deployments page to promote it without re-running.`,
+            "info",
+            "deploy",
+          );
+        }
         get().appendLog(
           `✅ ${checkOnly ? "Validation" : "Deployment"} finished successfully.`,
           "success",
@@ -659,8 +705,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     clearLogs: () => set({ logs: [] }),
 
-    setActiveView: (view) =>
-      set({ activeView: view, sidebarVisible: true }),
+    setActiveView: (view) => set({ activeView: view, sidebarVisible: true }),
 
     setSidebarVisible: (visible) => set({ sidebarVisible: visible }),
 
@@ -682,11 +727,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     retrieveOpen: false,
 
-    openRetrieve: () =>
-      set({ retrieveOpen: true, activeView: "metadata" }),
+    openRetrieve: () => set({ retrieveOpen: true, activeView: "metadata" }),
 
-    closeRetrieve: () =>
-      set({ retrieveOpen: false }),
+    closeRetrieve: () => set({ retrieveOpen: false }),
   };
 });
 

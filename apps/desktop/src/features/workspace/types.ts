@@ -22,7 +22,8 @@ export interface Workspace {
 }
 
 /** The sidebar views reachable from the activity bar. */
-export type SidebarView = "explorer" | "search" | "scm" | "metadata" | "settings";
+export type SidebarView =
+  "explorer" | "search" | "scm" | "metadata" | "settings";
 
 export const SIDEBAR_VIEWS: SidebarView[] = [
   "explorer",

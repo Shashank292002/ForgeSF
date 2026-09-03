@@ -1,4 +1,11 @@
-import { CheckCircle2, Circle, Loader2, XCircle, AlertTriangle, ArrowRight } from "lucide-react";
+import {
+  CheckCircle2,
+  Circle,
+  Loader2,
+  XCircle,
+  AlertTriangle,
+  ArrowRight,
+} from "lucide-react";
 import { cls } from "../../../lib/cls";
 import type { PipelineStep, PipelineStatus } from "../types";
 import styles from "./DeploymentPipeline.module.css";
@@ -52,9 +59,13 @@ export default function DeploymentPipeline({
           disabled={disabled || running}
         >
           {running ? (
-            <><Loader2 size={16} className={styles.spin} /> Deploying...</>
+            <>
+              <Loader2 size={16} className={styles.spin} /> Deploying...
+            </>
           ) : (
-            <><ArrowRight size={16} /> Run Deployment</>
+            <>
+              <ArrowRight size={16} /> Run Deployment
+            </>
           )}
         </button>
       </div>
@@ -78,16 +89,14 @@ export default function DeploymentPipeline({
               className={cls(
                 styles.step,
                 styles[STATUS_COLORS[step.status]],
-                isCurrent && styles.stepCurrent
+                isCurrent && styles.stepCurrent,
               )}
             >
               <div className={styles.stepConnector}>
                 <div className={styles.stepDot}>
                   <Icon
                     size={18}
-                    className={cls(
-                      step.status === "active" && styles.spin
-                    )}
+                    className={cls(step.status === "active" && styles.spin)}
                   />
                 </div>
                 {idx < steps.length - 1 && <div className={styles.stepLine} />}

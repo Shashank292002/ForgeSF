@@ -1,4 +1,4 @@
-import { Search, Bell, Menu, ChevronDown, User } from "lucide-react";
+import { Search, Menu, User } from "lucide-react";
 
 import { useOrganizationStore } from "../../store/orgStore";
 
@@ -35,17 +35,13 @@ export default function AppHeader({ onToggleSidebar }: AppHeaderProps) {
         <Search size={17} />
         <input
           className={styles.searchInput}
-          placeholder={organization ? `Search ${organization.alias}...` : "Search your org, metadata, code..."}
+          disabled
+          title="Global search is not implemented yet"
+          placeholder="Search (coming soon)"
         />
-        <kbd className={styles.kbd}>⌘K</kbd>
       </div>
 
       <div className={styles.actions}>
-        <button className={styles.iconBtn} aria-label="Notifications">
-          <Bell size={18} />
-          <span className={styles.notifDot} />
-        </button>
-
         <div className={styles.orgPill}>
           <span className={styles.orgAvatar}>
             <User size={15} />
@@ -63,7 +59,6 @@ export default function AppHeader({ onToggleSidebar }: AppHeaderProps) {
               organization ? styles.online : styles.offline
             }`}
           />
-          <ChevronDown size={14} className={styles.chevron} />
         </div>
       </div>
     </header>

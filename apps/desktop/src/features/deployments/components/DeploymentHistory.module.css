@@ -101,8 +101,14 @@
   font-family: var(--font-mono);
 }
 
-.successIcon { color: var(--color-success); flex-shrink: 0; }
-.failedIcon { color: var(--color-error); flex-shrink: 0; }
+.successIcon {
+  color: var(--color-success);
+  flex-shrink: 0;
+}
+.failedIcon {
+  color: var(--color-error);
+  flex-shrink: 0;
+}
 
 .recordContent {
   flex: 1;

@@ -3,7 +3,8 @@ import type { ButtonHTMLAttributes } from "react";
 import styles from "./Button.module.css";
 import { cls } from "../../../lib/cls";
 
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "gradient";
+export type ButtonVariant =
+  "primary" | "secondary" | "ghost" | "danger" | "gradient";
 export type ButtonSize = "sm" | "md" | "lg";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -34,7 +35,9 @@ export default function Button({
       {loading && <span className={styles.spinner} aria-hidden />}
       {!loading && leftIcon && <span className={styles.icon}>{leftIcon}</span>}
       <span>{children}</span>
-      {rightIcon && !loading && <span className={styles.icon}>{rightIcon}</span>}
+      {rightIcon && !loading && (
+        <span className={styles.icon}>{rightIcon}</span>
+      )}
     </button>
   );
 }

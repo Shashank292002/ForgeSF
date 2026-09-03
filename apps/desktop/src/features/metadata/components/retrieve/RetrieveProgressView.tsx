@@ -27,7 +27,10 @@ export default function RetrieveProgressView({ entries, total }: Props) {
         </div>
         <div className="mr-prog-stat">
           <span className="mr-prog-stat__label">Retrieved</span>
-          <span className="mr-prog-stat__value" style={{ color: "var(--mr-success)" }}>
+          <span
+            className="mr-prog-stat__value"
+            style={{ color: "var(--mr-success)" }}
+          >
             {totalRetrieved}
             <small>items</small>
           </span>
@@ -42,15 +45,15 @@ export default function RetrieveProgressView({ entries, total }: Props) {
       </div>
 
       <div className="mr-progress__bar">
-        <div className="mr-progress__bar-fill" style={{ width: `${percent}%` }} />
+        <div
+          className="mr-progress__bar-fill"
+          style={{ width: `${percent}%` }}
+        />
       </div>
 
       <div className="mr-progress__list">
         {entries.map((entry) => (
-          <div
-            key={entry.kind}
-            className={`mr-prog-row is-${entry.status}`}
-          >
+          <div key={entry.kind} className={`mr-prog-row is-${entry.status}`}>
             <span className="mr-prog-row__icon">
               {entry.status === "running" && <Loader2 size={14} />}
               {entry.status === "completed" && <Check size={14} />}

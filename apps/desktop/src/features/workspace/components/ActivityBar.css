@@ -27,7 +27,9 @@
   background: transparent;
   color: #858585;
   cursor: pointer;
-  transition: color 0.12s ease, background 0.12s ease;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease;
 }
 
 .fw-activitybar__item::before {

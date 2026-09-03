@@ -1,0 +1,5 @@
+# esbuild ships a prebuilt platform binary that its postinstall links into
+# place. Vitest needs it, and while the build stays unapproved pnpm's
+# blocked-build warning makes `pnpm tauri dev`'s dependency check exit 1.
+allowBuilds:
+  esbuild: true

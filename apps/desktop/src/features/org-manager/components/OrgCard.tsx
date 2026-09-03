@@ -1,10 +1,6 @@
 import type { Organization } from "../types";
 
-import {
-  openOrg,
-  setDefaultOrg,
-  logoutOrg,
-} from "../../../services/tauri";
+import { openOrg, setDefaultOrg, logoutOrg } from "../../../services/tauri";
 
 import { useOrganizationStore } from "../../../store/orgStore";
 import { Button, Badge } from "../../../components/ui";
@@ -18,8 +14,12 @@ interface Props {
 
 export default function OrgCard({ org }: Props) {
   const removeOrganization = useOrganizationStore((s) => s.removeOrganization);
-  const setSelectedOrganization = useOrganizationStore((s) => s.setSelectedOrganization);
-  const selectedOrganization = useOrganizationStore((s) => s.selectedOrganization);
+  const setSelectedOrganization = useOrganizationStore(
+    (s) => s.setSelectedOrganization,
+  );
+  const selectedOrganization = useOrganizationStore(
+    (s) => s.selectedOrganization,
+  );
 
   const isSelected = selectedOrganization?.id === org.id;
   const isConnected = org.status === "Connected";
@@ -99,7 +99,9 @@ export default function OrgCard({ org }: Props) {
         </li>
       </ul>
 
-      {isSelected && <div className={styles.activeBanner}>Active Organization</div>}
+      {isSelected && (
+        <div className={styles.activeBanner}>Active Organization</div>
+      )}
 
       <div className={styles.actions}>
         <Button
@@ -111,15 +113,30 @@ export default function OrgCard({ org }: Props) {
           {isSelected ? "Selected" : "Select"}
         </Button>
 
-        <Button variant="secondary" size="sm" leftIcon={<ExternalLink size={14} />} onClick={handleOpenOrg}>
+        <Button
+          variant="secondary"
+          size="sm"
+          leftIcon={<ExternalLink size={14} />}
+          onClick={handleOpenOrg}
+        >
           Open Org
         </Button>
 
-        <Button variant="ghost" size="sm" leftIcon={<Star size={14} />} onClick={handleSetDefault}>
+        <Button
+          variant="ghost"
+          size="sm"
+          leftIcon={<Star size={14} />}
+          onClick={handleSetDefault}
+        >
           Set Default
         </Button>
 
-        <Button variant="danger" size="sm" leftIcon={<LogOut size={14} />} onClick={handleRemove}>
+        <Button
+          variant="danger"
+          size="sm"
+          leftIcon={<LogOut size={14} />}
+          onClick={handleRemove}
+        >
           Logout
         </Button>
       </div>

@@ -12,16 +12,13 @@ import PluginsPage from "../../features/plugins/PluginsPage";
 import SettingsPage from "../../features/settings/SettingsPage";
 import WorkspacePage from "../../features/workspace/WorkspacePage";
 
-
 const router = createBrowserRouter([
-
   {
     path: "/",
 
     element: <MainLayout />,
 
     children: [
-
       {
         index: true,
         element: <DashboardPage />,
@@ -65,17 +62,10 @@ const router = createBrowserRouter([
         path: "settings",
         element: <SettingsPage />,
       },
-
     ],
   },
-
 ]);
 
-
 export function AppRouter() {
-
-  return (
-    <RouterProvider router={router}/>
-  );
-
+  return <RouterProvider router={router} />;
 }

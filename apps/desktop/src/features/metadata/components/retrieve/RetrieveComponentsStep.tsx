@@ -1,6 +1,5 @@
 import { createElement, useEffect, useMemo, useState } from "react";
 import {
-  Check,
   CheckCheck,
   ChevronLeft,
   Layers,
@@ -12,6 +11,7 @@ import {
 import type { MetadataType } from "../../types";
 import { categoryForType } from "../../lib/categories";
 import { memberSummary } from "../../lib/retrieveSpecs";
+import MemberList from "./MemberList";
 
 interface Props {
   metadata: MetadataType[];
@@ -58,10 +58,10 @@ export default function RetrieveComponentsStep({
   }, [activeType]);
 
   const members = useMemo(
-    () => (activeType ? componentsCache[activeType] ?? [] : []),
+    () => (activeType ? (componentsCache[activeType] ?? []) : []),
     [activeType, componentsCache],
   );
-  const picked = activeType ? selectedMembers[activeType] ?? [] : [];
+  const picked = activeType ? (selectedMembers[activeType] ?? []) : [];
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -94,7 +94,11 @@ export default function RetrieveComponentsStep({
           {types.map((kind) => {
             const info = categoryForType(kind);
             const Icon = info.icon;
-            const summary = memberSummary(kind, selectedMembers, componentsCache);
+            const summary = memberSummary(
+              kind,
+              selectedMembers,
+              componentsCache,
+            );
             const isActive = kind === activeType;
             return (
               <button
@@ -103,11 +107,16 @@ export default function RetrieveComponentsStep({
                 className={`mr-comps__type ${isActive ? "is-active" : ""}`}
                 onClick={() => onActiveType(kind)}
               >
-                <span className="mr-comps__type-icon" style={{ color: info.color }}>
+                <span
+                  className="mr-comps__type-icon"
+                  style={{ color: info.color }}
+                >
                   {createElement(Icon, { size: 15 })}
                 </span>
                 <span className="mr-comps__type-name">{typeLabel(kind)}</span>
-                <span className={`mr-comps__type-badge ${summary.narrowed ? "is-narrow" : ""}`}>
+                <span
+                  className={`mr-comps__type-badge ${summary.narrowed ? "is-narrow" : ""}`}
+                >
                   {summary.label}
                 </span>
               </button>
@@ -145,7 +154,6 @@ export default function RetrieveComponentsStep({
           </div>
         </div>
 
-
         <div className="mr-search">
           <Search size={15} className="mr-search__icon" />
           <input
@@ -173,8 +181,6 @@ export default function RetrieveComponentsStep({
             : "No components picked — every component of this type will be retrieved."}
         </div>
 
-
-
         <div className="mr-comps__list">
           {loadingType === activeType && (
             <div className="mr-comps__state">
@@ -184,35 +190,29 @@ export default function RetrieveComponentsStep({
           {loadingType !== activeType && error && (
             <div className="mr-comps__state is-error">{error}</div>
           )}
-          {loadingType !== activeType && !error && activeType && filtered.length === 0 && (
-            <div className="mr-comps__state">
-              {members.length === 0
-                ? "No components found for this type in the org."
-                : "No components match your filter."}
-            </div>
-          )}
+          {loadingType !== activeType &&
+            !error &&
+            activeType &&
+            filtered.length === 0 && (
+              <div className="mr-comps__state">
+                {members.length === 0
+                  ? "No components found for this type in the org."
+                  : "No components match your filter."}
+              </div>
+            )}
           {!activeType && (
             <div className="mr-comps__state">
-              <Layers size={18} /> Select a metadata type to choose its components.
+              <Layers size={18} /> Select a metadata type to choose its
+              components.
             </div>
           )}
-          {filtered.map((member) => {
-            const selected = picked.includes(member);
-            return (
-              <button
-                key={member}
-                type="button"
-                className={`mr-comp ${selected ? "is-selected" : ""}`}
-                onClick={() => activeType && onToggleMember(activeType, member)}
-                title={member}
-              >
-                <span className="mr-comp__check">
-                  {selected && <Check size={12} strokeWidth={3} />}
-                </span>
-                <span className="mr-comp__name">{member}</span>
-              </button>
-            );
-          })}
+          {filtered.length > 0 && activeType && (
+            <MemberList
+              members={filtered}
+              picked={picked}
+              onToggle={(member) => onToggleMember(activeType, member)}
+            />
+          )}
         </div>
       </div>
     </div>

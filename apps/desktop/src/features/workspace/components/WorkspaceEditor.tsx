@@ -20,13 +20,17 @@ function handleBeforeMount(monaco: Monaco) {
 export default function WorkspaceEditor() {
   const file = useWorkspaceStore((state) => state.selectedFile);
   const content = useWorkspaceStore((state) =>
-    file ? state.fileContents[file] ?? "" : "",
+    file ? (state.fileContents[file] ?? "") : "",
   );
   const loadingContent = useWorkspaceStore((state) =>
     file ? Boolean(state.loadingContent[file]) : false,
   );
-  const updateFileContent = useWorkspaceStore((state) => state.updateFileContent);
-  const setCursorPosition = useWorkspaceStore((state) => state.setCursorPosition);
+  const updateFileContent = useWorkspaceStore(
+    (state) => state.updateFileContent,
+  );
+  const setCursorPosition = useWorkspaceStore(
+    (state) => state.setCursorPosition,
+  );
   const openFolder = useWorkspaceStore((state) => state.openFolder);
   const openRetrieve = useWorkspaceStore((state) => state.openRetrieve);
 
@@ -69,7 +73,11 @@ export default function WorkspaceEditor() {
             >
               Retrieve Metadata
             </button>
-            <button type="button" className="fw-btn" onClick={() => void openFolder()}>
+            <button
+              type="button"
+              className="fw-btn"
+              onClick={() => void openFolder()}
+            >
               Open Folder
             </button>
           </div>
@@ -96,7 +104,9 @@ export default function WorkspaceEditor() {
 
       <div className="workspace-editor__chrome">
         <div className="workspace-editor__breadcrumbs" title={file}>
-          <span className="workspace-editor__lang">{languageForPath(file).toUpperCase()}</span>
+          <span className="workspace-editor__lang">
+            {languageForPath(file).toUpperCase()}
+          </span>
           <span className="workspace-editor__sep">/</span>
           <span className="workspace-editor__file">{getBaseName(file)}</span>
         </div>

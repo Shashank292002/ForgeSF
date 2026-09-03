@@ -71,7 +71,12 @@ export default function MetadataLauncher() {
         </div>
       )}
 
-      <button type="button" className="mr-btn mr-btn--ghost" onClick={() => navigate("/workspace")} style={{ justifyContent: "center" }}>
+      <button
+        type="button"
+        className="mr-btn mr-btn--ghost"
+        onClick={() => navigate("/workspace")}
+        style={{ justifyContent: "center" }}
+      >
         Go to Workspace <ArrowRight size={14} />
       </button>
     </div>

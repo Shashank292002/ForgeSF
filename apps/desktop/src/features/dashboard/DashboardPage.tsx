@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Users,
   Database,
@@ -65,6 +65,7 @@ const quickActions = [
 ];
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const { organization } = useCurrentOrg();
   const orgCount = useOrganizationStore((s) => s.organizations.length);
 
@@ -79,7 +80,7 @@ export default function DashboardPage() {
         <div className={styles.heroGlow} />
         <div className={styles.heroContent}>
           <Badge tone="purple" dot>
-            {organization ? "Ready to build" : "You're all set"}
+            {organization ? "Ready to build" : "Connect an org to begin"}
           </Badge>
 
           <h1 className={styles.heroTitle}>
@@ -93,7 +94,12 @@ export default function DashboardPage() {
           </p>
 
           <div className={styles.heroActions}>
-            <Button variant="gradient" size="lg" leftIcon={<Sparkles size={16} />}>
+            <Button
+              variant="gradient"
+              size="lg"
+              leftIcon={<Sparkles size={16} />}
+              onClick={() => navigate("/organizations")}
+            >
               {organization ? "Manage Orgs" : "Connect an Org"}
             </Button>
             <Link to="/workspace" className={styles.heroLink}>
@@ -186,7 +192,11 @@ export default function DashboardPage() {
           {/* Connected org */}
           <Card
             title={organization ? organization.alias : "No Org Selected"}
-            subtitle={organization ? "Active organization" : "Connect one to get started"}
+            subtitle={
+              organization
+                ? "Active organization"
+                : "Connect one to get started"
+            }
             icon={<Cloud size={20} />}
             action={
               organization ? (
@@ -212,7 +222,13 @@ export default function DashboardPage() {
                 </li>
                 <li>
                   <span>Status</span>
-                  <Badge tone={organization.status === "Connected" ? "success" : "warning"}>
+                  <Badge
+                    tone={
+                      organization.status === "Connected"
+                        ? "success"
+                        : "warning"
+                    }
+                  >
                     {organization.status}
                   </Badge>
                 </li>
@@ -243,4 +259,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

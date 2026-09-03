@@ -14,7 +14,10 @@
 
   box-shadow: var(--shadow-sm);
 
-  transition: transform var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast);
+  transition:
+    transform var(--motion-fast),
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 
 .card:hover {
@@ -25,7 +28,9 @@
 
 .selected {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px rgba(109, 91, 255, 0.35), 0 12px 34px rgba(109, 91, 255, 0.22);
+  box-shadow:
+    0 0 0 1px rgba(109, 91, 255, 0.35),
+    0 12px 34px rgba(109, 91, 255, 0.22);
 }
 
 /* ── Top row ──────────────────────────── */

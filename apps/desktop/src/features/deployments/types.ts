@@ -12,9 +12,17 @@ export interface DeploymentRecord {
   branch?: string;
 }
 
-export type DeployPhase = "idle" | "validating" | "building" | "deploying" | "verifying" | "done" | "error";
+export type DeployPhase =
+  | "idle"
+  | "validating"
+  | "building"
+  | "deploying"
+  | "verifying"
+  | "done"
+  | "error";
 
-export type PipelineStatus = "pending" | "active" | "success" | "failed" | "skipped";
+export type PipelineStatus =
+  "pending" | "active" | "success" | "failed" | "skipped";
 
 export interface PipelineStep {
   id: string;

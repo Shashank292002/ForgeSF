@@ -1,10 +1,4 @@
-import {
-  createElement,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { createElement, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   ChevronsDownUp,
@@ -47,6 +41,10 @@ function InlineInput({
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState(defaultValue);
 
+  // Escape unmounts this input, which makes React fire `blur` on the way out.
+  // Without this flag that blur committed the very edit Escape just cancelled.
+  const cancelled = useRef(false);
+
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
@@ -63,20 +61,26 @@ function InlineInput({
       onChange={(event) => setValue(event.target.value)}
       onKeyDown={(event) => {
         event.stopPropagation();
-        if (event.key === "Enter") onCommit(value);
-        if (event.key === "Escape") onCancel();
+        if (event.key === "Enter") {
+          cancelled.current = false;
+          onCommit(value);
+        }
+        if (event.key === "Escape") {
+          cancelled.current = true;
+          onCancel();
+        }
       }}
-      onBlur={() => onCommit(value)}
+      onBlur={() => {
+        if (cancelled.current) return;
+        onCommit(value);
+      }}
     />
   );
 }
 
 /* ─── Tree filtering (search box) ────────────────────────────── */
 
-function filterTree(
-  nodes: WorkspaceFile[],
-  rawQuery: string,
-): WorkspaceFile[] {
+function filterTree(nodes: WorkspaceFile[], rawQuery: string): WorkspaceFile[] {
   const query = rawQuery.trim().toLowerCase();
 
   const walk = (list: WorkspaceFile[]): WorkspaceFile[] =>
@@ -84,9 +88,13 @@ function filterTree(
       const selfMatch = node.name.toLowerCase().includes(query);
       if (node.type === "file") return selfMatch ? [node] : [];
 
-      const children = node.children ? walk(node.children) : [];
-      if (selfMatch || children.length > 0) {
-        return [{ ...node, children }];
+      const matchedChildren = node.children ? walk(node.children) : [];
+
+      // A folder that matches by name keeps *all* of its children: filtering
+      // them too rendered the match as an empty folder.
+      if (selfMatch) return [{ ...node, children: node.children }];
+      if (matchedChildren.length > 0) {
+        return [{ ...node, children: matchedChildren }];
       }
       return [];
     });
@@ -164,7 +172,9 @@ function TreeNode({
         data-path={node.path}
         role="treeitem"
         aria-selected={isActive}
-        aria-expanded={isFile ? undefined : hasChildren ? !isCollapsed : undefined}
+        aria-expanded={
+          isFile ? undefined : hasChildren ? !isCollapsed : undefined
+        }
         tabIndex={0}
         onClick={() => {
           if (isFile || forceExpand) onSelect(node.path);
@@ -357,7 +367,9 @@ export default function WorkspaceExplorer() {
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
-  const [pendingCreate, setPendingCreate] = useState<PendingCreate | null>(null);
+  const [pendingCreate, setPendingCreate] = useState<PendingCreate | null>(
+    null,
+  );
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -366,8 +378,11 @@ export default function WorkspaceExplorer() {
     type: string;
   } | null>(null);
 
-  const dirty = (path: string) =>
-    useWorkspaceStore.getState().dirty[path] ?? false;
+  // Subscribed, not read via getState(): an imperative snapshot does not
+  // re-render this component, so the unsaved-changes dots only refreshed when
+  // some *other* subscribed value happened to change.
+  const dirtyMap = useWorkspaceStore((state) => state.dirty);
+  const dirty = (path: string) => dirtyMap[path] ?? false;
   const isPathOpen = (path: string) => openFiles.includes(path);
 
   const expandPaths = (paths: string[]) =>
@@ -393,10 +408,7 @@ export default function WorkspaceExplorer() {
     return next;
   }, [expanded, selectedFile, revealRequest]);
 
-  const filteredFiles = useMemo(
-    () => filterTree(files, query),
-    [files, query],
-  );
+  const filteredFiles = useMemo(() => filterTree(files, query), [files, query]);
   const isFiltering = query.trim().length > 0;
 
   const toggleExpand = (path: string) =>
@@ -415,7 +427,11 @@ export default function WorkspaceExplorer() {
 
   const commitCreate = (parentPath: string, name: string) => {
     if (name.trim()) {
-      void createItem(parentPath, name.trim(), pendingCreate?.kind === "folder");
+      void createItem(
+        parentPath,
+        name.trim(),
+        pendingCreate?.kind === "folder",
+      );
     }
     setPendingCreate(null);
   };

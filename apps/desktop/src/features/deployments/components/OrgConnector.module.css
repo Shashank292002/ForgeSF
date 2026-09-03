@@ -11,7 +11,11 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(600px 200px at 50% 0%, rgba(109,91,255,0.08), transparent);
+  background: radial-gradient(
+    600px 200px at 50% 0%,
+    rgba(109, 91, 255, 0.08),
+    transparent
+  );
   pointer-events: none;
 }
 
@@ -42,8 +46,14 @@
   color: var(--color-text-muted);
 }
 
-.connected { color: var(--color-success); fill: var(--color-success); }
-.disconnected { color: var(--color-text-muted); fill: var(--color-text-muted); }
+.connected {
+  color: var(--color-success);
+  fill: var(--color-success);
+}
+.disconnected {
+  color: var(--color-text-muted);
+  fill: var(--color-text-muted);
+}
 
 .orgSelector {
   background: var(--color-surface-elevated);
@@ -53,12 +63,14 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+  transition:
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 
 .orgSelector:focus-within {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(109,91,255,0.12);
+  box-shadow: 0 0 0 3px rgba(109, 91, 255, 0.12);
 }
 
 .cloudIcon {
@@ -109,8 +121,13 @@
 }
 
 @keyframes cablePulse {
-  0%, 100% { opacity: 0.7; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* Plug Head */
@@ -126,8 +143,12 @@
   transition: left var(--motion-smooth) cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.plugAnimating { left: calc(100% - 40px) !important; }
-.plugPlugged { left: calc(100% - 40px) !important; }
+.plugAnimating {
+  left: calc(100% - 40px) !important;
+}
+.plugPlugged {
+  left: calc(100% - 40px) !important;
+}
 
 .plugBody {
   width: 28px;
@@ -137,11 +158,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(109,91,255,0.4);
+  box-shadow: 0 2px 8px rgba(109, 91, 255, 0.4);
   position: relative;
 }
 
-.plugIcon { color: white; }
+.plugIcon {
+  color: white;
+}
 
 .plugPoints {
   display: flex;
@@ -162,8 +185,12 @@
   top: -10px;
   left: 50%;
   transform: translateX(-50%);
-  background: linear-gradient(135deg, rgba(52,211,153,0.15), rgba(34,211,238,0.15));
-  border: 1px solid rgba(52,211,153,0.3);
+  background: linear-gradient(
+    135deg,
+    rgba(52, 211, 153, 0.15),
+    rgba(34, 211, 238, 0.15)
+  );
+  border: 1px solid rgba(52, 211, 153, 0.3);
   color: var(--color-success);
   padding: 2px 10px;
   border-radius: 999px;
@@ -177,8 +204,14 @@
 }
 
 @keyframes badgeIn {
-  from { opacity: 0; transform: translateX(-50%) translateY(4px) scale(0.8); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
 }
 
 /* Swap Button */
@@ -204,46 +237,102 @@
   transform: rotate(180deg);
 }
 
-.swapBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.swapBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 /* Energy Particles */
-.p1 { animation: flow1 1.8s linear infinite; }
-.p2 { animation: flow2 2.2s linear infinite; }
-.p3 { animation: flow3 1.6s linear infinite; }
+.p1 {
+  animation: flow1 1.8s linear infinite;
+}
+.p2 {
+  animation: flow2 2.2s linear infinite;
+}
+.p3 {
+  animation: flow3 1.6s linear infinite;
+}
 
 @keyframes flow1 {
-  0% { opacity: 0; transform: translate(10px, 30px); }
-  20% { opacity: 1; }
-  80% { opacity: 1; }
-  100% { opacity: 0; transform: translate(190px, 28px); }
+  0% {
+    opacity: 0;
+    transform: translate(10px, 30px);
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(190px, 28px);
+  }
 }
 
 @keyframes flow2 {
-  0% { opacity: 0; transform: translate(30px, 32px); }
-  25% { opacity: 1; }
-  75% { opacity: 1; }
-  100% { opacity: 0; transform: translate(180px, 26px); }
+  0% {
+    opacity: 0;
+    transform: translate(30px, 32px);
+  }
+  25% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(180px, 26px);
+  }
 }
 
 @keyframes flow3 {
-  0% { opacity: 0; transform: translate(50px, 28px); }
-  30% { opacity: 1; }
-  70% { opacity: 1; }
-  100% { opacity: 0; transform: translate(185px, 32px); }
+  0% {
+    opacity: 0;
+    transform: translate(50px, 28px);
+  }
+  30% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(185px, 32px);
+  }
 }
 
 /* Responsive */
 @media (max-width: 900px) {
-  .container { flex-direction: column; gap: 12px; }
-  .cableSection { width: 100%; flex-direction: row; justify-content: center; }
-  .cableTrack { max-width: 200px; }
-  .orgMeta { display: none; }
+  .container {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .cableSection {
+    width: 100%;
+    flex-direction: row;
+    justify-content: center;
+  }
+  .cableTrack {
+    max-width: 200px;
+  }
+  .orgMeta {
+    display: none;
+  }
 }
 
 @media (max-width: 600px) {
-  .wrapper { padding: 16px 12px; }
-  .orgSelector { flex-wrap: wrap; }
-  .select { width: 100%; }
+  .wrapper {
+    padding: 16px 12px;
+  }
+  .orgSelector {
+    flex-wrap: wrap;
+  }
+  .select {
+    width: 100%;
+  }
 }
 
 .select {

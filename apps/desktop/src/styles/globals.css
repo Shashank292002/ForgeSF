@@ -1,5 +1,5 @@
 @import "./variables.css";
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap");
+@import "./fonts.css";
 
 * {
   margin: 0;
@@ -17,15 +17,29 @@ body,
 body {
   font-family: var(--font-sans);
   background:
-    radial-gradient(1100px 620px at 8% -6%, rgba(109, 91, 255, 0.18), transparent 55%),
-    radial-gradient(900px 560px at 100% 0%, rgba(34, 211, 238, 0.1), transparent 50%),
-    radial-gradient(1200px 700px at 60% 120%, rgba(236, 72, 153, 0.12), transparent 55%),
+    radial-gradient(
+      1100px 620px at 8% -6%,
+      rgba(109, 91, 255, 0.18),
+      transparent 55%
+    ),
+    radial-gradient(
+      900px 560px at 100% 0%,
+      rgba(34, 211, 238, 0.1),
+      transparent 50%
+    ),
+    radial-gradient(
+      1200px 700px at 60% 120%,
+      rgba(236, 72, 153, 0.12),
+      transparent 55%
+    ),
     var(--color-background);
   background-attachment: fixed;
   color: var(--color-text);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  overflow: hidden;
+  /* The app shell owns its own scrolling; `overflow: hidden` here clipped any
+     page taller than the window with no way to reach the rest. */
+  overflow: clip;
 }
 
 a {

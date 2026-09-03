@@ -9,7 +9,10 @@ interface WorkspacePanelProps {
   onToggle: () => void;
 }
 
-export default function WorkspacePanel({ open, onToggle }: WorkspacePanelProps) {
+export default function WorkspacePanel({
+  open,
+  onToggle,
+}: WorkspacePanelProps) {
   return (
     <div className={`workspace-panel ${open ? "is-open" : "is-closed"}`}>
       <div className="workspace-panel__bar" onClick={onToggle}>

@@ -1,4 +1,13 @@
-import { Clock, CheckCircle2, XCircle, RotateCcw, GitBranch, Tag, User, ChevronDown } from "lucide-react";
+import {
+  Clock,
+  CheckCircle2,
+  XCircle,
+  RotateCcw,
+  GitBranch,
+  Tag,
+  User,
+  ChevronDown,
+} from "lucide-react";
 import { cls } from "../../../lib/cls";
 import type { DeploymentRecord } from "../types";
 import styles from "./DeploymentHistory.module.css";
@@ -83,9 +92,7 @@ export default function DeploymentHistory({
                 <span className={styles.metaItem}>
                   {record.metadataCount} metadata types
                 </span>
-                <span className={styles.metaTime}>
-                  {record.timestamp}
-                </span>
+                <span className={styles.metaTime}>{record.timestamp}</span>
               </div>
             </div>
 

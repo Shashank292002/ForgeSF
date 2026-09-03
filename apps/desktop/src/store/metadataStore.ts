@@ -3,187 +3,106 @@ import { create } from "zustand";
 import type { MetadataType } from "../features/metadata/types";
 
 interface MetadataState {
+  /**
+   * Username of the org `metadata` was loaded from.
+   *
+   * Selections are scoped to it: the store previously kept one global
+   * selection, so switching orgs left you able to retrieve or deploy types
+   * and components belonging to the *previous* org.
+   */
+  orgUsername: string | null;
 
-    metadata: MetadataType[];
+  /** Metadata types available in `orgUsername`'s org. */
+  metadata: MetadataType[];
 
-    selectedMetadata: string[];
+  /** Metadata types selected for an upcoming retrieve or deploy. */
+  selectedTypes: string[];
 
-    /** Metadata types selected for an upcoming retrieve (whole-type selection). */
-    selectedTypes: string[];
+  /** Components picked per metadata type (`Kind -> [member, …]`). */
+  selectedMembers: Record<string, string[]>;
 
-    search: string;
+  /** Replaces the type list, clearing selections when the org changed. */
+  setMetadata: (orgUsername: string, metadata: MetadataType[]) => void;
 
-    loading: boolean;
+  setSelectedTypes: (types: string[]) => void;
+  toggleType: (xmlName: string) => void;
+  clearTypes: () => void;
 
-    output: string;
+  /** Toggles one component of a metadata type. */
+  toggleMember: (xmlName: string, member: string) => void;
 
-    setMetadata: (
-        metadata: MetadataType[]
-    ) => void;
+  /** Replaces the whole member selection for one metadata type. */
+  setMembers: (xmlName: string, members: string[]) => void;
 
-    setSelectedMetadata: (
-        metadata: string[]
-    ) => void;
+  /** Clears the member selection for one metadata type (back to "all"). */
+  clearMemberSelection: (xmlName: string) => void;
 
-    toggleMetadata: (
-        xmlName: string
-    ) => void;
-
-    setSelectedTypes: (types: string[]) => void;
-
-    toggleType: (xmlName: string) => void;
-
-    clearTypes: () => void;
-
-    /** Components picked per metadata type (`Kind -> [member, …]`). */
-    selectedMembers: Record<string, string[]>;
-
-    /** Toggles one component of a metadata type. */
-    toggleMember: (xmlName: string, member: string) => void;
-
-    /** Replaces the whole member selection for one metadata type. */
-    setMembers: (xmlName: string, members: string[]) => void;
-
-    /** Clears the member selection for one metadata type (back to "all"). */
-    clearMemberSelection: (xmlName: string) => void;
-
-    /** Clears every per-type component selection. */
-    clearAllMembers: () => void;
-
-    setSearch: (
-        search: string
-    ) => void;
-
-    setLoading: (
-        loading: boolean
-    ) => void;
-
-    setOutput: (
-        output: string
-    ) => void;
-
-    clearSelection: () => void;
-
+  /** Clears every per-type component selection. */
+  clearAllMembers: () => void;
 }
 
-export const useMetadataStore =
-    create<MetadataState>((set) => ({
+export const useMetadataStore = create<MetadataState>((set) => ({
+  orgUsername: null,
 
-        metadata: [],
+  metadata: [],
 
-        selectedMetadata: [],
+  selectedTypes: [],
 
-        selectedTypes: [],
+  selectedMembers: {},
 
-        search: "",
+  setMetadata: (orgUsername, metadata) =>
+    set((state) => {
+      const sameOrg = state.orgUsername === orgUsername;
+      return {
+        orgUsername,
+        metadata,
+        selectedTypes: sameOrg ? state.selectedTypes : [],
+        selectedMembers: sameOrg ? state.selectedMembers : {},
+      };
+    }),
 
-        loading: false,
+  setSelectedTypes: (selectedTypes) => set({ selectedTypes }),
 
-        output: "",
+  toggleType: (xmlName) =>
+    set((state) => {
+      if (!state.selectedTypes.includes(xmlName)) {
+        return { selectedTypes: [...state.selectedTypes, xmlName] };
+      }
 
-        setMetadata: (metadata) =>
-            set({
-                metadata
-            }),
+      // Deselecting a type also drops its component selection, so
+      // re-selecting it later starts from "all components".
+      const selectedMembers = { ...state.selectedMembers };
+      delete selectedMembers[xmlName];
+      return {
+        selectedTypes: state.selectedTypes.filter((item) => item !== xmlName),
+        selectedMembers,
+      };
+    }),
 
-        setSelectedMetadata: (selectedMetadata) =>
-            set({
-                selectedMetadata
-            }),
+  clearTypes: () => set({ selectedTypes: [], selectedMembers: {} }),
 
-        toggleMetadata: (xmlName) =>
-            set((state) => {
+  toggleMember: (xmlName, member) =>
+    set((state) => {
+      const current = state.selectedMembers[xmlName] ?? [];
+      const next = current.includes(member)
+        ? current.filter((item) => item !== member)
+        : [...current, member];
+      return {
+        selectedMembers: { ...state.selectedMembers, [xmlName]: next },
+      };
+    }),
 
-                const exists =
-                    state.selectedMetadata.includes(xmlName);
+  setMembers: (xmlName, members) =>
+    set((state) => ({
+      selectedMembers: { ...state.selectedMembers, [xmlName]: members },
+    })),
 
-                return {
+  clearMemberSelection: (xmlName) =>
+    set((state) => {
+      const next = { ...state.selectedMembers };
+      delete next[xmlName];
+      return { selectedMembers: next };
+    }),
 
-                    selectedMetadata: exists
-                        ? state.selectedMetadata.filter(
-                              item => item !== xmlName
-                          )
-                        : [
-                              ...state.selectedMetadata,
-                              xmlName
-                          ]
-
-                };
-
-            }),
-
-        setSelectedTypes: (selectedTypes) =>
-            set({ selectedTypes }),
-
-        toggleType: (xmlName) =>
-            set((state) => {
-                const exists = state.selectedTypes.includes(xmlName);
-                if (exists) {
-                    const members = { ...state.selectedMembers };
-                    delete members[xmlName];
-                    return {
-                        selectedTypes: state.selectedTypes.filter(
-                              item => item !== xmlName
-                          ),
-                        selectedMembers: members,
-                    };
-                }
-                return {
-                    selectedTypes: [...state.selectedTypes, xmlName],
-                };
-            }),
-
-        clearTypes: () =>
-            set({ selectedTypes: [], selectedMembers: {} }),
-
-        selectedMembers: {},
-
-        toggleMember: (xmlName, member) =>
-            set((state) => {
-                const current = state.selectedMembers[xmlName] ?? [];
-                const next = current.includes(member)
-                    ? current.filter((item) => item !== member)
-                    : [...current, member];
-                return {
-                    selectedMembers: { ...state.selectedMembers, [xmlName]: next },
-                };
-            }),
-
-        setMembers: (xmlName, members) =>
-            set((state) => ({
-                selectedMembers: { ...state.selectedMembers, [xmlName]: members },
-            })),
-
-        clearMemberSelection: (xmlName) =>
-            set((state) => {
-                const next = { ...state.selectedMembers };
-                delete next[xmlName];
-                return { selectedMembers: next };
-            }),
-
-        clearAllMembers: () =>
-            set({ selectedMembers: {} }),
-
-
-        setSearch: (search) =>
-            set({
-                search
-            }),
-
-        setLoading: (loading) =>
-            set({
-                loading
-            }),
-
-        setOutput: (output) =>
-            set({
-                output
-            }),
-
-        clearSelection: () =>
-            set({
-                selectedMetadata: [],
-                output: ""
-            })
-
-    }));
+  clearAllMembers: () => set({ selectedMembers: {} }),
+}));

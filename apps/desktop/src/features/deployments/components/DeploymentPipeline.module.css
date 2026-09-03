@@ -45,13 +45,13 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(109,91,255,0.3);
+  box-shadow: 0 4px 16px rgba(109, 91, 255, 0.3);
   transition: all var(--motion-fast);
 }
 
 .runBtn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(109,91,255,0.4);
+  box-shadow: 0 8px 24px rgba(109, 91, 255, 0.4);
 }
 
 .runBtn:disabled {
@@ -68,7 +68,9 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Progress Bar */
@@ -131,15 +133,42 @@
 }
 
 /* Statuses */
-.pending .stepDot { border-color: var(--color-border); color: var(--color-text-muted); }
-.pending .stepLabel { color: var(--color-text-muted); }
-.active .stepDot { border-color: var(--color-primary); background: var(--color-primary-soft); color: var(--color-primary); }
-.active .stepLabel { color: var(--color-primary); }
-.success .stepDot { border-color: var(--color-success); background: var(--color-success-soft); color: var(--color-success); }
-.success .stepLabel { color: var(--color-success); }
-.failed .stepDot { border-color: var(--color-error); background: var(--color-error-soft); color: var(--color-error); }
-.failed .stepLabel { color: var(--color-error); }
-.skipped .stepDot { border-color: var(--color-text-muted); background: var(--color-surface-hover); color: var(--color-text-muted); }
+.pending .stepDot {
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+.pending .stepLabel {
+  color: var(--color-text-muted);
+}
+.active .stepDot {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+.active .stepLabel {
+  color: var(--color-primary);
+}
+.success .stepDot {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.success .stepLabel {
+  color: var(--color-success);
+}
+.failed .stepDot {
+  border-color: var(--color-error);
+  background: var(--color-error-soft);
+  color: var(--color-error);
+}
+.failed .stepLabel {
+  color: var(--color-error);
+}
+.skipped .stepDot {
+  border-color: var(--color-text-muted);
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
+}
 
 .stepContent {
   flex: 1;

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CodeXml, Play, Eraser, TerminalSquare, Loader2, Save } from "lucide-react";
+import { CodeXml, Play, Eraser, TerminalSquare, Loader2 } from "lucide-react";
 
 import { useOrganizationStore } from "../../store/orgStore";
 import { runCommand } from "../../services/tauri";
@@ -70,7 +70,13 @@ export default function ApexPage() {
         <div className={styles.toolbar}>
           <Button
             variant="gradient"
-            leftIcon={running ? <Loader2 size={15} className={styles.spin} /> : <Play size={15} />}
+            leftIcon={
+              running ? (
+                <Loader2 size={15} className={styles.spin} />
+              ) : (
+                <Play size={15} />
+              )
+            }
             onClick={runApex}
             loading={running}
             disabled={!org}
@@ -78,12 +84,12 @@ export default function ApexPage() {
             {running ? "Running..." : "Run Apex"}
           </Button>
 
-          <Button variant="secondary" leftIcon={<Eraser size={15} />} onClick={clear}>
+          <Button
+            variant="secondary"
+            leftIcon={<Eraser size={15} />}
+            onClick={clear}
+          >
             Clear
-          </Button>
-
-          <Button variant="ghost" leftIcon={<Save size={15} />}>
-            Save Snippet
           </Button>
 
           <span className={styles.hint}>

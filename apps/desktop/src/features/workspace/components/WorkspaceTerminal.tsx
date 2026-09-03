@@ -34,8 +34,7 @@ export default function WorkspaceTerminal() {
   const handleScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
-    stickBottom.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    stickBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
   };
 
   const handleSubmit = () => {
@@ -75,7 +74,10 @@ export default function WorkspaceTerminal() {
           </div>
         ) : (
           logs.map((entry) => (
-            <div key={entry.id} className={`workspace-terminal__line ${KIND_CLASS[entry.kind]}`}>
+            <div
+              key={entry.id}
+              className={`workspace-terminal__line ${KIND_CLASS[entry.kind]}`}
+            >
               <span className="workspace-terminal__time">{entry.time}</span>
               <span className="workspace-terminal__text">{entry.text}</span>
             </div>

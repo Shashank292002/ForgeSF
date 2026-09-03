@@ -89,3 +89,56 @@
 .divider {
   color: var(--color-border-strong);
 }
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-bottom: var(--space-sm);
+  padding: 10px 14px;
+  border: 1px solid rgba(251, 191, 36, 0.32);
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-soft);
+  color: var(--color-text);
+  font-size: 13px;
+}
+
+.noticeHint {
+  color: var(--color-text-muted);
+}
+
+.refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition:
+    color var(--motion-fast),
+    border-color var(--motion-fast);
+}
+
+.refresh:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+
+.refresh:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.spinning {
+  animation: orgspin 900ms linear infinite;
+}
+
+@keyframes orgspin {
+  to {
+    transform: rotate(360deg);
+  }
+}

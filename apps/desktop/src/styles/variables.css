@@ -8,7 +8,12 @@
   --color-pink: #ec4899;
   --color-amber: #fbbf24;
 
-  --gradient-brand: linear-gradient(135deg, #6d5bff 0%, #9d4dff 55%, #ec4899 110%);
+  --gradient-brand: linear-gradient(
+    135deg,
+    #6d5bff 0%,
+    #9d4dff 55%,
+    #ec4899 110%
+  );
   --gradient-accent: linear-gradient(135deg, #22d3ee 0%, #2dd4bf 100%);
   --gradient-warm: linear-gradient(135deg, #fbbf24 0%, #fb7185 100%);
 
@@ -57,7 +62,8 @@
   /* ─── Shadows & elevation ───────────────────────────────────── */
   --shadow-sm: 0 8px 22px rgba(1, 9, 21, 0.28);
   --shadow-md: 0 20px 48px rgba(1, 9, 21, 0.38);
-  --shadow-glow: 0 0 0 1px rgba(109, 91, 255, 0.4), 0 10px 34px rgba(109, 91, 255, 0.22);
+  --shadow-glow:
+    0 0 0 1px rgba(109, 91, 255, 0.4), 0 10px 34px rgba(109, 91, 255, 0.22);
 
   /* ─── Motion ────────────────────────────────────────────────── */
   --motion-fast: 160ms;
@@ -65,6 +71,9 @@
   --motion-smooth: 460ms;
 
   /* ─── Fonts ─────────────────────────────────────────────────── */
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, "Roboto Mono", monospace;
+  --font-sans:
+    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:
+    "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo,
+    "Roboto Mono", monospace;
 }

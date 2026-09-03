@@ -25,8 +25,18 @@ interface Item {
 const ITEMS: Item[] = [
   { id: "explorer", label: "Explorer", icon: Files, shortcut: "Ctrl+Shift+E" },
   { id: "search", label: "Search", icon: Search, shortcut: "Ctrl+Shift+F" },
-  { id: "scm", label: "Source Control", icon: GitBranch, shortcut: "Ctrl+Shift+G" },
-  { id: "metadata", label: "Metadata", icon: Database, shortcut: "Ctrl+Shift+M" },
+  {
+    id: "scm",
+    label: "Source Control",
+    icon: GitBranch,
+    shortcut: "Ctrl+Shift+G",
+  },
+  {
+    id: "metadata",
+    label: "Metadata",
+    icon: Database,
+    shortcut: "Ctrl+Shift+M",
+  },
   { id: "settings", label: "Settings", icon: Settings, shortcut: "Ctrl+," },
 ];
 
@@ -49,9 +59,9 @@ export default function ActivityBar() {
         {ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive =
-            activeView === item.id && (item.id !== "explorer" || sidebarVisible);
-          const badge =
-            item.id === "scm" && dirtyCount > 0 ? dirtyCount : null;
+            activeView === item.id &&
+            (item.id !== "explorer" || sidebarVisible);
+          const badge = item.id === "scm" && dirtyCount > 0 ? dirtyCount : null;
 
           return (
             <button
@@ -71,7 +81,10 @@ export default function ActivityBar() {
         })}
 
         {deploying && (
-          <div className="fw-activitybar__deploy" title="Deployment in progress">
+          <div
+            className="fw-activitybar__deploy"
+            title="Deployment in progress"
+          >
             <Loader2 size={18} className="spinning" />
           </div>
         )}
@@ -93,9 +106,7 @@ export default function ActivityBar() {
         >
           <Cloud size={19} strokeWidth={1.75} />
           <span
-            className={`fw-activitybar__dot ${
-              organization ? "is-online" : ""
-            }`}
+            className={`fw-activitybar__dot ${organization ? "is-online" : ""}`}
           />
         </button>
       </div>

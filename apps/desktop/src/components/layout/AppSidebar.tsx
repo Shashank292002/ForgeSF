@@ -37,7 +37,9 @@ export default function AppSidebar({
         <div className={styles.topRow}>
           <div className={styles.brand}>
             <span className={styles.logo}>⚡</span>
-            <span className={styles.brandName}>Forge<span className={styles.brandAccent}>SF</span></span>
+            <span className={styles.brandName}>
+              Forge<span className={styles.brandAccent}>SF</span>
+            </span>
           </div>
 
           <div className={styles.topActions}>
@@ -68,14 +70,19 @@ export default function AppSidebar({
                   const Icon = item.icon;
                   const isActive =
                     location.pathname === item.path ||
-                    (item.path !== "/" && location.pathname.startsWith(item.path));
+                    (item.path !== "/" &&
+                      location.pathname.startsWith(item.path));
 
                   return (
                     <li key={item.path}>
                       <NavLink
                         to={item.path}
                         onClick={onClose}
-                        className={isActive ? `${styles.navLink} ${styles.active}` : styles.navLink}
+                        className={
+                          isActive
+                            ? `${styles.navLink} ${styles.active}`
+                            : styles.navLink
+                        }
                       >
                         <span className={styles.icon}>
                           <Icon size={18} />

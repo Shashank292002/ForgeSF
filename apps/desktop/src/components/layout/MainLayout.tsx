@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import AppHeader from "./AppHeader";
 import AppSidebar from "./AppSidebar";
+import ErrorBoundary from "../ErrorBoundary/ErrorBoundary";
 import styles from "./MainLayout.module.css";
 
 export default function MainLayout() {
@@ -15,8 +16,12 @@ export default function MainLayout() {
   const isWorkspace = location.pathname.startsWith("/workspace");
 
   return (
-    <div className={`${styles.container} ${isWorkspace ? styles.workspace : ""}`}>
-      {!isWorkspace && <AppHeader onToggleSidebar={() => setSidebarOpen((s) => !s)} />}
+    <div
+      className={`${styles.container} ${isWorkspace ? styles.workspace : ""}`}
+    >
+      {!isWorkspace && (
+        <AppHeader onToggleSidebar={() => setSidebarOpen((s) => !s)} />
+      )}
 
       <div className={styles.content}>
         <AppSidebar
@@ -29,7 +34,9 @@ export default function MainLayout() {
         <main
           className={`${styles.main} ${isWorkspace ? styles.workspaceMain : ""}`}
         >
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

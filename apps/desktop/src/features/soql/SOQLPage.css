@@ -41,7 +41,6 @@
   color: var(--color-text);
 }
 
-
 .soql-subtitle {
   margin-top: 6px;
   color: var(--color-text-secondary);
@@ -61,7 +60,9 @@
   padding: 10px 16px;
   border-radius: 999px;
   cursor: pointer;
-  transition: background 0.2s ease, transform 0.2s ease;
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
 }
 
 .soql-tab-button:hover {
@@ -121,7 +122,9 @@
   padding: 10px 16px;
   border-radius: 10px;
   cursor: pointer;
-  transition: background 0.2s ease, transform 0.2s ease;
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
 }
 
 .soql-action-button:hover:not(:disabled),
@@ -137,7 +140,11 @@
 .soql-resize-handle {
   height: 8px;
   cursor: row-resize;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0.01)
+  );
 }
 
 .soql-output-panel {
@@ -174,9 +181,27 @@
 .soql-record-table th,
 .soql-record-table td {
   text-align: left;
-  padding: 12px 10px;
+  /* Fixed row height: the virtualiser measures rows at 30px, so padding and
+     line-height here have to add up to that. */
+  height: 30px;
+  padding: 4px 10px;
+  line-height: 22px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+/* Header stays put while the virtualised body scrolls under it. */
+.soql-record-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface);
+  font-weight: 600;
+  color: var(--color-text-secondary);
 }
 
 .soql-output-pre {
@@ -205,7 +230,11 @@
 .soql-h-resize-handle {
   width: 10px;
   cursor: col-resize;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0.01)
+  );
 }
 
 .soql-panel-group {
@@ -263,7 +292,9 @@
   color: var(--color-text-muted);
   font-size: 12px;
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
 }
 
 .soql-view-toggle button.active {
@@ -284,7 +315,9 @@
   color: var(--color-text-secondary);
   font-size: 12px;
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
 }
 
 .soql-format-btn:hover,
@@ -339,7 +372,9 @@
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
 }
 
 .soql-history-actions button:hover:not(:disabled) {
@@ -440,3 +475,18 @@
   }
 }
 
+/* Tab badge on history entries — each entry replays against its own tab. */
+.soql-history-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}

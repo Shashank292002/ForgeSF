@@ -3,6 +3,8 @@
    ══════════════════════════════════════════════════════════════ */
 
 .mr {
+  /* Slightly lifted off the app background so the overlay reads as a layer
+     above the page rather than part of it. */
   --mr-bg: #0e1218;
   --mr-surface: #141a24;
   --mr-raised: #1b2230;
@@ -11,20 +13,24 @@
   --mr-text: #e8edf7;
   --mr-text-2: #9aa7c2;
   --mr-muted: #6b7a99;
-  --mr-brand: #6d5bff;
-  --mr-brand-2: #9d4dff;
-  --mr-success: #34d399;
-  --mr-success-soft: rgba(52, 211, 153, 0.16);
-  --mr-warning: #fbbf24;
-  --mr-error: #fb7185;
-  --mr-error-soft: rgba(251, 113, 133, 0.16);
-  --mr-info: #60a5fa;
-  --mr-info-soft: rgba(96, 165, 250, 0.16);
-  --mr-accent: #22d3ee;
+  /* Brand and semantic colours are the app's, not this surface's — these were
+     byte-identical copies of the --color-* tokens under a different prefix. */
+  --mr-brand: var(--color-primary);
+  --mr-brand-2: var(--color-secondary);
+  --mr-success: var(--color-success);
+  --mr-success-soft: var(--color-success-soft);
+  --mr-warning: var(--color-warning);
+  --mr-error: var(--color-error);
+  --mr-error-soft: var(--color-error-soft);
+  --mr-info: var(--color-info);
+  --mr-info-soft: var(--color-info-soft);
+  --mr-accent: var(--color-accent);
+  /* A tighter radius scale than the app's --radius-* on purpose: this is a
+     dense, panel-heavy surface. */
   --mr-rad-lg: 18px;
   --mr-rad: 12px;
   --mr-rad-sm: 9px;
-  --mr-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --mr-mono: var(--font-mono);
 }
 
 /* ─── Overlay scrim (workspace mode) ────────────────────────── */
@@ -813,7 +819,7 @@
 .mr-launcher__title {
   font-weight: 700;
   font-size: 14px;
-  color: var(--fw-text);
+  color: var(--mr-text);
 }
 .mr-launcher__desc {
   color: var(--mr-muted);

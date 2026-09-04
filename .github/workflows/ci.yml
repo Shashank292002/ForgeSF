@@ -62,3 +62,10 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy -- -D warnings
       - run: cargo check
+      - run: cargo test --lib
+
+      # `cargo test --lib` regenerates the TypeScript IPC types via ts-rs.
+      # If that changes anything, the committed bindings are stale and the
+      # frontend's `invoke<T>` calls no longer match what Rust sends.
+      - name: Generated IPC types are up to date
+        run: git diff --exit-code -- ../src/types/generated

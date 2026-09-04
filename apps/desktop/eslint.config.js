@@ -6,7 +6,10 @@ import tseslint from "typescript-eslint";
 import { defineConfig, globalIgnores } from "eslint/config";
 
 export default defineConfig([
-  globalIgnores(["dist"]),
+  // `workspace/` holds the developer's own retrieved Salesforce source, not
+  // app code: its LWC decorators do not parse under this config, and the
+  // directory is gitignored anyway.
+  globalIgnores(["dist", "workspace", "public/fonts"]),
   {
     files: ["**/*.{ts,tsx}"],
     extends: [

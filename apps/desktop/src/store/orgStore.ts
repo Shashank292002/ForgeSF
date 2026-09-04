@@ -5,6 +5,7 @@ import {
   saveOrganizations,
   saveSelectedOrganizationId,
 } from "../services/storage";
+import { persist } from "../services/persistQueue";
 
 interface OrganizationState {
   organizations: Organization[];
@@ -43,7 +44,7 @@ export const useOrganizationStore = create<OrganizationState>((set) => ({
   setOrganizations: (organizations) => {
     // Persisting here too: this used to be the one mutation that did not
     // write through, so the store's contract depended on which setter ran.
-    void saveOrganizations(organizations);
+    void persist("the org list", () => saveOrganizations(organizations));
 
     set({
       organizations,
@@ -65,7 +66,7 @@ export const useOrganizationStore = create<OrganizationState>((set) => ({
               index === existing ? organization : org,
             );
 
-      void saveOrganizations(updated);
+      void persist("the org list", () => saveOrganizations(updated));
 
       return {
         organizations: updated,
@@ -77,7 +78,9 @@ export const useOrganizationStore = create<OrganizationState>((set) => ({
       };
     });
 
-    void saveSelectedOrganizationId(organization.id);
+    void persist("the selected org", () =>
+      saveSelectedOrganizationId(organization.id),
+    );
   },
 
   removeOrganization: (id) => {
@@ -89,9 +92,11 @@ export const useOrganizationStore = create<OrganizationState>((set) => ({
           ? (updated[0] ?? null)
           : state.selectedOrganization;
 
-      void saveOrganizations(updated);
+      void persist("the org list", () => saveOrganizations(updated));
 
-      void saveSelectedOrganizationId(selected?.id ?? null);
+      void persist("the selected org", () =>
+        saveSelectedOrganizationId(selected?.id ?? null),
+      );
 
       return {
         organizations: updated,
@@ -104,7 +109,9 @@ export const useOrganizationStore = create<OrganizationState>((set) => ({
   },
 
   setSelectedOrganization: (organization) => {
-    void saveSelectedOrganizationId(organization?.id ?? null);
+    void persist("the selected org", () =>
+      saveSelectedOrganizationId(organization?.id ?? null),
+    );
 
     set({
       selectedOrganization: organization,

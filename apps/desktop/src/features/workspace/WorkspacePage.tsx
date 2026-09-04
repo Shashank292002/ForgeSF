@@ -20,6 +20,7 @@ import WorkspaceStatusBar from "./components/WorkspaceStatusBar";
 import WorkspaceToolbar from "./components/WorkspaceToolbar";
 import MetadataLauncher from "../metadata/components/retrieve/MetadataLauncher";
 import MetadataRetriever from "../metadata/components/retrieve/MetadataRetriever";
+import WorkspaceDiff from "./components/WorkspaceDiff";
 import { useWorkspaceInit } from "./hooks/useWorkspaceInit";
 import { useWorkspaceShortcuts } from "./hooks/useWorkspaceShortcuts";
 import { useWorkspaceStore } from "./store/workspaceStore";
@@ -27,7 +28,7 @@ import { useWorkspaceStore } from "./store/workspaceStore";
 const SIDEBAR_TITLES: Record<string, string> = {
   explorer: "Explorer",
   search: "Search",
-  scm: "Source Control",
+  scm: "Pending Changes",
   metadata: "Metadata",
   settings: "Settings",
 };
@@ -44,6 +45,11 @@ export default function WorkspacePage() {
   const initWorkspace = useWorkspaceStore((state) => state.initWorkspace);
   const retrieveOpen = useWorkspaceStore((state) => state.retrieveOpen);
   const closeRetrieve = useWorkspaceStore((state) => state.closeRetrieve);
+  // The diff overlay is open while a session is loading, failed or ready.
+  const diffOpen = useWorkspaceStore(
+    (state) =>
+      state.diffLoading || state.diffError !== null || state.diffSession !== null,
+  );
 
   const { loaded, error, booting } = useWorkspaceInit();
   useWorkspaceShortcuts();
@@ -175,6 +181,8 @@ export default function WorkspacePage() {
       </div>
 
       <WorkspaceStatusBar />
+
+      {diffOpen && <WorkspaceDiff />}
 
       {retrieveOpen && (
         <div

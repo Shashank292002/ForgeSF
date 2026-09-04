@@ -24,6 +24,7 @@ export interface MetadataCategoryInfo {
   key: MetadataCategoryKey;
   label: string;
   icon: LucideIcon;
+  /** A CSS custom property reference — applied as an inline style. */
   color: string;
   description: string;
 }
@@ -96,56 +97,56 @@ const CATEGORY_INFO: Record<MetadataCategoryKey, MetadataCategoryInfo> = {
     key: "objects",
     label: "Objects & Fields",
     icon: Database,
-    color: "#2dd4bf",
+    color: "var(--cat-objects)",
     description: "Standard & custom objects, fields and their definitions",
   },
   apex: {
     key: "apex",
     label: "Code",
     icon: Zap,
-    color: "#f59e0b",
+    color: "var(--cat-apex)",
     description: "Apex classes, triggers, pages, LWC and static resources",
   },
   automation: {
     key: "automation",
     label: "Automation",
     icon: Plug,
-    color: "#a78bfa",
+    color: "var(--cat-automation)",
     description: "Flows, workflows, approvals, and email alerts",
   },
   data: {
     key: "data",
     label: "Data",
     icon: Box,
-    color: "#60a5fa",
+    color: "var(--cat-data)",
     description: "Custom metadata types, labels and value sets",
   },
   access: {
     key: "access",
     label: "Access & Users",
     icon: Lock,
-    color: "#f87171",
+    color: "var(--cat-access)",
     description: "Profiles, permission sets, roles and sharing",
   },
   integration: {
     key: "integration",
     label: "Integration",
     icon: Globe,
-    color: "#4ade80",
+    color: "var(--cat-integration)",
     description: "Connected apps, named credentials and remote sites",
   },
   ui: {
     key: "ui",
     label: "User Interface",
     icon: Palette,
-    color: "#f472b6",
+    color: "var(--cat-ui)",
     description: "Tabs, flexipages, themes and experience bundles",
   },
   other: {
     key: "other",
     label: "Other",
     icon: Layers,
-    color: "#94a3b8",
+    color: "var(--cat-other)",
     description: "Anything not covered by the categories above",
   },
 };

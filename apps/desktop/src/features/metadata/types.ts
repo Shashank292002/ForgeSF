@@ -1,7 +1,7 @@
 export interface MetadataType {
   xmlName: string;
   directoryName: string;
-  suffix?: string;
+  suffix: string | null;
   inFolder: boolean;
   metaFile: boolean;
   childXmlNames: string[];
@@ -29,7 +29,7 @@ export interface RetrieveTypeResult {
   kind: string;
   status: "completed" | "failed";
   retrieved: number;
-  message?: string;
+  message: string | null;
 }
 
 /** Aggregated outcome of a retrieve run. */

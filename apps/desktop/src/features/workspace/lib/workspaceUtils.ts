@@ -141,3 +141,63 @@ export function compareNodes(a: WorkspaceFile, b: WorkspaceFile): number {
 export function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
+
+/**
+ * Replaces one folder's `children` in place, leaving the rest of the tree
+ * untouched. Used when a folder's contents arrive from a lazy read.
+ */
+export function setChildren(
+  nodes: WorkspaceFile[],
+  path: string,
+  children: WorkspaceFile[],
+): WorkspaceFile[] {
+  const target = normalizePath(path);
+
+  return nodes.map((node) => {
+    if (normalizePath(node.path) === target) {
+      return { ...node, children, hasChildren: children.length > 0 };
+    }
+    // Only descend where the target could actually live.
+    if (node.children && target.startsWith(`${normalizePath(node.path)}/`)) {
+      return {
+        ...node,
+        children: setChildren(node.children, target, children),
+      };
+    }
+    return node;
+  });
+}
+
+/** A tree row the explorer will actually draw, given what is expanded. */
+export interface FlatNode {
+  node: WorkspaceFile;
+  depth: number;
+}
+
+/**
+ * Flattens the tree into the ordered list of currently visible rows.
+ *
+ * Virtualising the explorer needs a flat list: a recursive component tree has
+ * no stable index to map a scroll offset onto.
+ */
+export function flattenVisible(
+  nodes: WorkspaceFile[],
+  isExpanded: (path: string) => boolean,
+  depth = 0,
+): FlatNode[] {
+  const rows: FlatNode[] = [];
+
+  for (const node of nodes) {
+    rows.push({ node, depth });
+    if (
+      node.type === "folder" &&
+      isExpanded(node.path) &&
+      node.children &&
+      node.children.length > 0
+    ) {
+      rows.push(...flattenVisible(node.children, isExpanded, depth + 1));
+    }
+  }
+
+  return rows;
+}

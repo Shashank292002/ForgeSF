@@ -111,9 +111,9 @@ export default function OrgConnector({
             >
               <defs>
                 <linearGradient id="cg" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#6d5bff" />
-                  <stop offset="50%" stopColor="#9d4dff" />
-                  <stop offset="100%" stopColor="#ec4899" />
+                  <stop offset="0%" stopColor="var(--color-primary)" />
+                  <stop offset="50%" stopColor="var(--color-secondary)" />
+                  <stop offset="100%" stopColor="var(--color-pink)" />
                 </linearGradient>
                 <filter id="glow">
                   <feGaussianBlur stdDeviation="2" result="b" />
@@ -136,19 +136,19 @@ export default function OrgConnector({
                 <>
                   <circle
                     r="3"
-                    fill="#6d5bff"
+                    fill="var(--color-primary)"
                     filter="url(#glow)"
                     className={styles.p1}
                   />
                   <circle
                     r="2.5"
-                    fill="#9d4dff"
+                    fill="var(--color-secondary)"
                     filter="url(#glow)"
                     className={styles.p2}
                   />
                   <circle
                     r="2"
-                    fill="#ec4899"
+                    fill="var(--color-pink)"
                     filter="url(#glow)"
                     className={styles.p3}
                   />

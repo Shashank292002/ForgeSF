@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import {
   TerminalSquare,
@@ -15,10 +15,16 @@ import {
 } from "lucide-react";
 
 import { useOrganizationStore } from "../../store/orgStore";
-import { runQuery, runCommand } from "../../services/tauri";
+import {
+  runQuery,
+  runCommand,
+  runSfJson,
+  cancelSfCommand,
+} from "../../services/tauri";
 import { Button, Badge } from "../../components/ui";
 import OrgGuard from "../../components/OrgGuard/OrgGuard";
 import RecordTable from "./RecordTable";
+import { tokenize } from "../workspace/lib/tokenize";
 
 import "./SOQLPage.css";
 
@@ -47,6 +53,11 @@ const TAB_LABELS: Record<Tab, string> = {
 interface HistoryEntry {
   tab: Tab;
   value: string;
+  /**
+   * The org this ran against. Absent on entries written before history was
+   * scoped — those stay visible everywhere until they age out of the list.
+   */
+  orgId?: string;
 }
 
 function tryParseRecords(output: string): Record<string, unknown>[] | null {
@@ -71,6 +82,7 @@ export default function SOQLPage() {
   const [view, setView] = useState<View>("table");
   const [copied, setCopied] = useState(false);
   const [executeMs, setExecuteMs] = useState<number | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   // Entries remember the tab they were run from. A single flat list replayed
   // SOQL through whichever tab happened to be open — sending a query to the
@@ -84,7 +96,12 @@ export default function SOQLPage() {
           typeof item === "string"
             ? { tab: "soql", value: item } // migrate the old flat format
             : item && typeof item.value === "string"
-              ? { tab: (item.tab as Tab) ?? "soql", value: item.value }
+              ? {
+                  tab: (item.tab as Tab) ?? "soql",
+                  value: item.value,
+                  orgId:
+                    typeof item.orgId === "string" ? item.orgId : undefined,
+                }
               : null,
         )
         .filter((item): item is HistoryEntry => item !== null);
@@ -95,16 +112,50 @@ export default function SOQLPage() {
 
   const copyTimer = useRef<number | null>(null);
 
+  /**
+   * History for the active org only.
+   *
+   * Entries used to be offered regardless of which org was connected, so a
+   * sandbox query could be replayed — with one click — against Production.
+   */
+  const visibleHistory = useMemo(
+    () =>
+      history
+        .map((item, index) => ({ item, index }))
+        .filter(
+          ({ item }) => item.orgId === undefined || item.orgId === org?.id,
+        ),
+    [history, org?.id],
+  );
+
+  useEffect(
+    () => () => {
+      if (copyTimer.current) window.clearTimeout(copyTimer.current);
+    },
+    [],
+  );
+
   const records = useMemo(() => tryParseRecords(output), [output]);
   const rowCount = records?.length ?? 0;
+
+  /** "12 rows · 340ms" — whichever parts are known. */
+  const summary = useMemo(() => {
+    const parts: string[] = [];
+    if (records) parts.push(`${rowCount} row${rowCount === 1 ? "" : "s"}`);
+    if (executeMs !== null) parts.push(`${executeMs}ms`);
+    return parts.length > 0 ? parts.join(" · ") : null;
+  }, [records, rowCount, executeMs]);
 
   function pushHistory(entryTab: Tab, q: string) {
     const trimmed = q.trim();
     if (!trimmed) return;
     setHistory((prev) => {
       const next = [
-        { tab: entryTab, value: trimmed },
-        ...prev.filter((h) => !(h.value === trimmed && h.tab === entryTab)),
+        { tab: entryTab, value: trimmed, orgId: org?.id },
+        ...prev.filter(
+          (h) =>
+            !(h.value === trimmed && h.tab === entryTab && h.orgId === org?.id),
+        ),
       ].slice(0, 50);
       localStorage.setItem("devtools.history", JSON.stringify(next));
       return next;
@@ -132,6 +183,7 @@ export default function SOQLPage() {
     if (!org || running) return;
 
     setRunning(true);
+    setCancelling(false);
     setOutput("");
     setCopied(false);
     setExecuteMs(null);
@@ -146,6 +198,7 @@ export default function SOQLPage() {
       setOutput(err instanceof Error ? err.message : String(err));
     } finally {
       setRunning(false);
+      setCancelling(false);
       setExecuteMs(Math.round(performance.now() - started));
     }
   }
@@ -163,18 +216,15 @@ export default function SOQLPage() {
       void runWith(
         async () => {
           if (!org) return "";
-          return runCommand(
-            [
-              "data",
-              "search",
-              "--target-org",
-              org.username,
-              "--query",
-              override.trim(),
-              "--json",
-            ],
-            undefined,
-          );
+          return runSfJson([
+            "data",
+            "search",
+            "--target-org",
+            org.username,
+            "--query",
+            override.trim(),
+            "--json",
+          ]);
         },
         forTab,
         override,
@@ -183,7 +233,7 @@ export default function SOQLPage() {
       void runWith(
         async () => {
           if (!org) return "";
-          return runCommand(
+          return runSfJson(
             ["apex", "execute", "--target-org", org.username, "--json"],
             override,
           );
@@ -194,9 +244,7 @@ export default function SOQLPage() {
     else
       void runWith(
         async () => {
-          const parts = override.match(/(?:[^"\s]+|"[^"]*")+/g) || [];
-          const args = parts.map((p) => p.replace(/^"|"$/g, ""));
-          return runCommand(args, undefined);
+          return runCommand(tokenize(override));
         },
         forTab,
         override,
@@ -357,6 +405,20 @@ export default function SOQLPage() {
                         {running ? "Running..." : `Execute ${TAB_LABELS[tab]}`}
                       </Button>
 
+                      {running && (
+                        <Button
+                          variant="secondary"
+                          leftIcon={<X size={15} />}
+                          onClick={() => {
+                            setCancelling(true);
+                            void cancelSfCommand();
+                          }}
+                          disabled={cancelling}
+                        >
+                          {cancelling ? "Stopping…" : "Cancel"}
+                        </Button>
+                      )}
+
                       <Button
                         variant="secondary"
                         leftIcon={<RotateCcw size={15} />}
@@ -394,14 +456,11 @@ export default function SOQLPage() {
                     <div className="soql-output-header">
                       <div className="soql-output-title">
                         <strong>Output</strong>
+                        {/* Rows *and* duration: the badge used to show one or
+                            the other, so a successful query never reported how
+                            long it took — the number you want when tuning. */}
                         <Badge tone={running ? "warning" : "default"} dot>
-                          {running
-                            ? "Running"
-                            : rowCount > 0 && records
-                              ? `${rowCount} row${rowCount === 1 ? "" : "s"}`
-                              : executeMs
-                                ? `${executeMs}ms`
-                                : "Idle"}
+                          {running ? "Running" : (summary ?? "Idle")}
                         </Badge>
                       </div>
 
@@ -463,7 +522,11 @@ export default function SOQLPage() {
                         Running {TAB_LABELS[tab]}...
                       </pre>
                     ) : output ? (
-                      records && view === "table" ? (
+                      records && records.length === 0 ? (
+                        <pre className="soql-output-pre soql-output-muted">
+                          0 rows — the query ran but matched nothing.
+                        </pre>
+                      ) : records && view === "table" ? (
                         <RecordTable
                           records={records}
                           headers={headers}
@@ -493,7 +556,7 @@ export default function SOQLPage() {
                     <button
                       onClick={clearHistory}
                       disabled={history.length === 0}
-                      title="Clear history"
+                      title="Clear history (all orgs)"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -501,12 +564,14 @@ export default function SOQLPage() {
                 </div>
 
                 <div className="soql-history-list">
-                  {history.length === 0 ? (
+                  {visibleHistory.length === 0 ? (
                     <p className="soql-history-empty">
-                      No history yet. Executed queries will appear here.
+                      {history.length === 0
+                        ? "No history yet. Executed queries will appear here."
+                        : `No history for ${org?.alias ?? "this org"} yet.`}
                     </p>
                   ) : (
-                    history.map((item, i) => (
+                    visibleHistory.map(({ item, index: i }) => (
                       <div
                         className="soql-history-item"
                         key={`${i}-${item.value}`}

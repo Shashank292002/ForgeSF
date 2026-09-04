@@ -2,11 +2,11 @@ import { useMemo } from "react";
 import {
   Check,
   CloudOff,
-  GitBranch,
   Loader2,
   RotateCw,
   Save,
   Undo2,
+  UploadCloud,
 } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
@@ -15,6 +15,13 @@ import { getBaseName } from "../lib/workspaceUtils";
 
 import "./SourceControl.css";
 
+/**
+ * Files edited but not yet deployed, and the actions to push them.
+ *
+ * Deliberately not git: it lists unsaved/undeployed workspace buffers so they
+ * can go to the org in one action. It previously wore a branch icon and git's
+ * "M" marker, which promised version control it does not provide.
+ */
 export default function SourceControl() {
   const dirty = useWorkspaceStore((state) => state.dirty);
   const deploying = useWorkspaceStore((state) => state.deploying);
@@ -34,7 +41,7 @@ export default function SourceControl() {
     <section className="workspace-scm">
       <div className="workspace-scm__header">
         <div className="workspace-scm__title">
-          <GitBranch size={14} /> SOURCE CONTROL
+          <UploadCloud size={14} /> PENDING CHANGES
         </div>
         <div className="workspace-scm__tools">
           {dirtyPaths.length > 0 && (
@@ -89,7 +96,9 @@ export default function SourceControl() {
                       onClick={() => void selectFile(path)}
                       title={path}
                     >
-                      <span className="workspace-scm__marker">M</span>
+                      <span className="workspace-scm__marker" title="Edited since last save">
+                        ●
+                      </span>
                       <span className="workspace-scm__name">
                         {getBaseName(path)}
                       </span>

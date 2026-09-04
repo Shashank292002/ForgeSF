@@ -102,3 +102,31 @@ select {
     transform: translateY(0);
   }
 }
+
+/* ── Keyboard focus ──────────────────────────────────────────────
+   Only one stylesheet defined a focus ring, so most of the app was
+   unnavigable by keyboard without guessing where focus had landed.
+   `:focus-visible` shows it for keyboard users without ringing every
+   mouse click. */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* The editor chrome uses its own accent so the ring reads against the
+   VS Code greys rather than the brand purple. */
+.forge-ws :focus-visible {
+  outline-color: var(--fw-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

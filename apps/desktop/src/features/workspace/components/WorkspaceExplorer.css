@@ -469,3 +469,62 @@
   margin: 4px 6px;
   background: rgba(121, 121, 121, 0.28);
 }
+
+/* ── Virtualised tree ────────────────────────────────────────────
+   Only the visible rows are mounted. The rows container reserves the full
+   scroll height; each row is absolutely positioned into it, so its height
+   must stay in step with TREE_ROW_HEIGHT in WorkspaceExplorer.tsx. */
+.workspace-explorer__rows {
+  position: relative;
+  width: 100%;
+}
+
+.workspace-explorer__row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.forge-ws .fw-tree__spinner {
+  animation: fw-tree-spin 800ms linear infinite;
+  color: var(--fw-muted);
+}
+
+@keyframes fw-tree-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .forge-ws .fw-tree__spinner {
+    animation: none;
+  }
+}
+
+/* ── Disabled actions ────────────────────────────────────────────
+   Deploy / Retrieve / Diff Check are disabled without a connected org, and
+   the inline Deploy while one is already running. Without these the generic
+   hover rule above still painted them with the accent colour, so a disabled
+   item looked more active than an enabled one. */
+.forge-ws__context-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.forge-ws__context-menu button:disabled:hover,
+.forge-ws__context-menu button:disabled:focus-visible {
+  background: transparent;
+  color: var(--fw-text);
+}
+
+.forge-ws .fw-tree__row-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.forge-ws .fw-tree__row-btn:disabled:hover {
+  background: transparent;
+  color: inherit;
+}

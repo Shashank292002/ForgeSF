@@ -11,6 +11,7 @@ import {
 
 import { useMetadataStore } from "../../../../store/metadataStore";
 import useCurrentOrg from "../../../../hooks/useCurrentOrg";
+import { useOrganizationStore } from "../../../../store/orgStore";
 import {
   listMetadataComponents,
   listMetadataTypes,
@@ -26,6 +27,9 @@ import type {
 import type { MetadataCategoryKey } from "../../lib/categories";
 import { buildRetrieveSpecs } from "../../lib/retrieveSpecs";
 import { useWorkspaceStore } from "../../../workspace/store/workspaceStore";
+import { useDialog } from "../../../../hooks/useDialog";
+import { mixingWarningFor } from "../../../workspace/lib/workspaceGuards";
+import { setWorkspaceRetrievedOrg } from "../../../workspace/services/workspaceService";
 
 import RetrieveSelectStep from "./RetrieveSelectStep";
 import RetrieveComponentsStep from "./RetrieveComponentsStep";
@@ -80,6 +84,8 @@ export default function MetadataRetriever({
 }: Props) {
   const navigate = useNavigate();
   const { organization } = useCurrentOrg();
+  // Needed to name the previous org in the mixing warning.
+  const organizations = useOrganizationStore((s) => s.organizations);
 
   const metadata = useMetadataStore((s) => s.metadata);
   const setMetadata = useMetadataStore((s) => s.setMetadata);
@@ -129,14 +135,10 @@ export default function MetadataRetriever({
 
   useEffect(() => () => unlistenRef.current?.(), []);
 
-  useEffect(() => {
-    if (mode !== "overlay") return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose?.();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [mode, onClose]);
+  // Only the overlay presentation is a modal; the /metadata route is a page.
+  const dialogRef = useDialog(() => {
+    if (mode === "overlay") onClose?.();
+  });
 
   // Loads the org's metadata types. The `cancelled` flag drops results from a
   // superseded org: switching orgs mid-fetch used to let the slower response
@@ -293,6 +295,17 @@ export default function MetadataRetriever({
           })),
         );
         void refreshFiles();
+
+        // Remember which org wrote this tree, so a later retrieve from a
+        // different one can warn first.
+        const { activeWorkspaceId } = useWorkspaceStore.getState();
+        if (activeWorkspaceId && organization.id) {
+          void setWorkspaceRetrievedOrg(activeWorkspaceId, organization.id)
+            .then(() => useWorkspaceStore.getState().loadWorkspaces())
+            .catch(() => {
+              // Best-effort bookkeeping — never fail a completed retrieve.
+            });
+        }
         setStep("results");
       } catch (error) {
         setRetrieveError(
@@ -303,8 +316,9 @@ export default function MetadataRetriever({
           summary: String(error),
           items: kinds.map((kind) => ({
             kind,
-            status: "failed",
+            status: "failed" as const,
             retrieved: 0,
+            message: null,
           })),
           total: kinds.length,
           succeeded: 0,
@@ -351,8 +365,39 @@ export default function MetadataRetriever({
       if (!proceed) return;
     }
 
+    // Retrieving from a different org than the one that populated this tree
+    // merges two orgs' metadata into one force-app directory, with no way to
+    // tell afterwards which file came from where.
+    const workspaceState = useWorkspaceStore.getState();
+    const activeWorkspace = workspaceState.workspaces.find(
+      (item) => item.id === workspaceState.activeWorkspaceId,
+    );
+    const mixing = mixingWarningFor(activeWorkspace, organization?.id);
+
+    if (mixing) {
+      const previous =
+        organizations.find((org) => org.id === mixing.previousOrgId)?.alias ??
+        "another org";
+      const proceed = window.confirm(
+        `"${mixing.workspaceName}" was last retrieved from ${previous}.
+
+` +
+          `Retrieving from ${organization?.alias ?? "this org"} will mix metadata ` +
+          `from two orgs in the same force-app tree.
+
+Continue?`,
+      );
+      if (!proceed) return;
+    }
+
     void runRetrieve(buildRetrieveSpecs(selectedTypes, selectedMembers));
-  }, [runRetrieve, selectedTypes, selectedMembers]);
+  }, [
+    runRetrieve,
+    selectedTypes,
+    selectedMembers,
+    organization,
+    organizations,
+  ]);
 
   /**
    * Selects or clears the types currently visible.
@@ -419,7 +464,14 @@ export default function MetadataRetriever({
   }
 
   return (
-    <div className={`mr mr-card ${mode === "page" ? "mr-card--page" : ""}`}>
+    <div
+      className={`mr mr-card ${mode === "page" ? "mr-card--page" : ""}`}
+      ref={mode === "overlay" ? dialogRef : undefined}
+      role={mode === "overlay" ? "dialog" : undefined}
+      aria-modal={mode === "overlay" ? true : undefined}
+      aria-label={mode === "overlay" ? "Retrieve Metadata" : undefined}
+      tabIndex={mode === "overlay" ? -1 : undefined}
+    >
       <header className="mr-head">
         <div className="mr-head__brand">
           <span className="mr-head__mark">

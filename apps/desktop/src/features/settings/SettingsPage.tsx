@@ -6,8 +6,12 @@ import {
   Palette,
   Info,
   DatabaseZap,
+  FolderGit2,
+  Trash2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+
+import { useWorkspaceStore } from "../workspace/store/workspaceStore";
 
 import { useOrganizationStore } from "../../store/orgStore";
 import { Card, Badge, Button } from "../../components/ui";
@@ -18,6 +22,11 @@ type Theme = "dark" | "light" | "system";
 
 export default function SettingsPage() {
   const navigate = useNavigate();
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  const switchWorkspace = useWorkspaceStore((s) => s.switchWorkspace);
+  const addWorkspace = useWorkspaceStore((s) => s.addWorkspace);
+  const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace);
   const organization = useOrganizationStore((s) => s.selectedOrganization);
   const organizations = useOrganizationStore((s) => s.organizations);
 
@@ -126,6 +135,89 @@ export default function SettingsPage() {
               Manage Orgs
             </Button>
           </div>
+        </Card>
+
+        {/* Workspaces */}
+        <Card
+          title="Workspaces"
+          subtitle="One folder per org — metadata is never mixed between them"
+          icon={<FolderGit2 size={20} />}
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void addWorkspace()}
+            >
+              Add folder
+            </Button>
+          }
+        >
+          {workspaces.length === 0 ? (
+            <p className={styles.emptyText}>
+              No projects yet. Add a folder containing an SFDX project — each
+              one remembers the org you last used it with.
+            </p>
+          ) : (
+            <ul className={styles.workspaceList}>
+              {workspaces.map((workspace) => {
+                const isActive = workspace.id === activeWorkspaceId;
+                const org = organizations.find(
+                  (item) =>
+                    item.id === (workspace.orgId ?? workspace.lastOrgId),
+                );
+
+                return (
+                  <li key={workspace.id} className={styles.workspaceItem}>
+                    <button
+                      type="button"
+                      className={`${styles.workspaceMain} ${
+                        isActive ? styles.workspaceActive : ""
+                      }`}
+                      title={workspace.path}
+                      onClick={() => void switchWorkspace(workspace.id)}
+                    >
+                      <span className={styles.workspaceName}>
+                        {workspace.name}
+                        {isActive && (
+                          <Badge tone="success" dot>
+                            Active
+                          </Badge>
+                        )}
+                      </span>
+                      <code className={styles.workspacePath}>
+                        {workspace.path}
+                      </code>
+                    </button>
+
+                    <span className={styles.workspaceOrg}>
+                      {org ? org.alias : "Unassigned"}
+                    </span>
+
+                    <button
+                      type="button"
+                      className={styles.workspaceRemove}
+                      title="Forget this workspace (files are not deleted)"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Remove "${workspace.name}" from ForgeSF?
+
+` +
+                              "The folder and its files stay on disk — only this " +
+                              "entry is forgotten.",
+                          )
+                        ) {
+                          void removeWorkspace(workspace.id);
+                        }
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </Card>
 
         {/* About */}

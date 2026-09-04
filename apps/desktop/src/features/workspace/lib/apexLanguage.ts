@@ -309,6 +309,20 @@ export function registerApexLanguage(monaco: Monaco): void {
    ForgeSF dark editor theme (VS Code Dark+ inspired)
    ────────────────────────────────────────────────────────────── */
 
+/**
+ * The editor's colour theme.
+ *
+ * These are the one place in the app where raw hex is unavoidable: Monaco's
+ * `defineTheme` takes literal colour strings and cannot resolve CSS custom
+ * properties, and its `rules[].foreground` format is not even valid CSS (no
+ * leading `#`). Everything else draws from the tokens in `styles/variables.css`
+ * or the `--fw-*` editor theme in `WorkspacePage.css`.
+ *
+ * Two values below intentionally mirror CSS tokens and must be changed
+ * together with them:
+ *   `editor.background`                        ↔ `--fw-bg`
+ *   `editorSuggestWidget.highlightForeground`  ↔ `--color-primary`
+ */
 export function defineForgeTheme(monaco: Monaco): void {
   monaco.editor.defineTheme("forge-dark", {
     base: "vs-dark",

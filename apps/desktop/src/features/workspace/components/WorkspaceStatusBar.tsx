@@ -1,13 +1,13 @@
-import { Cloud, GitBranch, Loader2, Check } from "lucide-react";
+import { Cloud, Loader2, Check } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
+import WorkspaceSwitcher from "./WorkspaceSwitcher";
 import { useOrganizationStore } from "../../../store/orgStore";
 import { languageForPath } from "../lib/editorLanguage";
 
 import "./WorkspaceStatusBar.css";
 
 export default function WorkspaceStatusBar() {
-  const workspaceName = useWorkspaceStore((state) => state.workspaceName);
   const selectedFile = useWorkspaceStore((state) => state.selectedFile);
   const cursor = useWorkspaceStore((state) => state.cursorPosition);
   const saveStatus = useWorkspaceStore((state) => state.saveStatus);
@@ -22,10 +22,7 @@ export default function WorkspaceStatusBar() {
   return (
     <footer className="workspace-statusbar">
       <div className="workspace-statusbar__left">
-        <span className="workspace-statusbar__item" title={workspaceName}>
-          <GitBranch size={12} />
-          {workspaceName || "workspace"}
-        </span>
+        <WorkspaceSwitcher />
         <span className="workspace-statusbar__item" title="Active organization">
           <Cloud size={12} />
           {organization ? organization.alias : "No org"}

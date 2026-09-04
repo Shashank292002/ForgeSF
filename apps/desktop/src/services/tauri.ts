@@ -2,34 +2,23 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { Organization } from "../features/org-manager/types";
-import type { MetadataType } from "../features/metadata/types";
+import type { MetadataType, RetrieveResult } from "../features/metadata/types";
 
-export interface RetrieveResultItem {
-  kind: string;
-  status: "completed" | "failed";
-  retrieved: number;
-  message?: string;
-}
-
-export interface RetrieveResult {
-  success: boolean;
-  summary: string;
-  items: RetrieveResultItem[];
-  total: number;
-  succeeded: number;
-  failed: number;
-}
+export type {
+  RetrieveResult,
+  RetrieveTypeResult as RetrieveResultItem,
+} from "../features/metadata/types";
 
 export interface RetrieveProgressEvent {
   phase: "item" | "complete";
   index: number;
   total: number;
-  kind?: string;
-  status?: "running" | "completed" | "failed" | "cancelled";
+  kind: string | null;
+  status: "running" | "completed" | "failed" | "cancelled" | null;
   retrieved: number;
   succeeded: number;
   failed: number;
-  message?: string;
+  message: string | null;
 }
 
 // Connect Salesforce org
@@ -83,7 +72,7 @@ export function writeWorkspaceFile(path: string, content: string) {
 
 export interface DeployOutcome {
   /** Present after a validation — feed it to `deployQuick` to promote it. */
-  jobId?: string;
+  jobId: string | null;
   status: string;
   summary: string;
   checkOnly: boolean;
@@ -123,6 +112,23 @@ export function runQuery(username: string, query: string) {
 
 export function runCommand(args: string[], input?: string) {
   return invoke<string>("run_command", { args, input });
+}
+
+/**
+ * Runs an `sf` command that emits `--json`, validating the response envelope.
+ *
+ * Use this over `runCommand` for anything passing `--json`: several
+ * subcommands report failure *inside* a status-0 response. `sf apex execute`
+ * exits 0 when Apex compiles and then throws, so exit-code checking alone
+ * reports a failed run as a success.
+ */
+export function runSfJson(args: string[], input?: string) {
+  return invoke<string>("run_sf_json", { args, input });
+}
+
+/** Asks an in-flight Developer Tools command to stop. */
+export function cancelSfCommand() {
+  return invoke<void>("cancel_sf_command");
 }
 
 /**

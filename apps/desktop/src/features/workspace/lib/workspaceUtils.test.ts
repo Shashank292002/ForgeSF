@@ -10,6 +10,8 @@ import {
   mapTreePaths,
   normalizePath,
   removeNode,
+  setChildren,
+  flattenVisible,
 } from "./workspaceUtils";
 import type { WorkspaceFile } from "../types";
 
@@ -97,5 +99,48 @@ describe("compareNodes", () => {
 
   it("sorts case-insensitively within a type", () => {
     expect(compareNodes(file("Beta"), file("alpha"))).toBeGreaterThan(0);
+  });
+});
+
+describe("lazy-loading helpers", () => {
+  const lazyTree: WorkspaceFile[] = [
+    { path: "a", name: "a", type: "folder", hasChildren: true },
+    { path: "b.cls", name: "b.cls", type: "file" },
+  ];
+
+  it("fills in a folder's children without touching siblings", () => {
+    const next = setChildren(lazyTree, "a", [file("a/x.cls")]);
+    expect(next[0].children).toHaveLength(1);
+    expect(next[0].hasChildren).toBe(true);
+    expect(next[1]).toBe(lazyTree[1]);
+  });
+
+  it("marks a folder as empty when the read returns nothing", () => {
+    const next = setChildren(lazyTree, "a", []);
+    expect(next[0].hasChildren).toBe(false);
+  });
+
+  it("only shows children of expanded folders", () => {
+    const loaded = setChildren(lazyTree, "a", [file("a/x.cls")]);
+    expect(flattenVisible(loaded, () => false).map((r) => r.node.path)).toEqual([
+      "a",
+      "b.cls",
+    ]);
+    expect(flattenVisible(loaded, () => true).map((r) => r.node.path)).toEqual([
+      "a",
+      "a/x.cls",
+      "b.cls",
+    ]);
+  });
+
+  it("reports nesting depth for indent guides", () => {
+    const loaded = setChildren(lazyTree, "a", [file("a/x.cls")]);
+    expect(flattenVisible(loaded, () => true).map((r) => r.depth)).toEqual([
+      0, 1, 0,
+    ]);
+  });
+
+  it("treats an unloaded folder as having no visible children", () => {
+    expect(flattenVisible(lazyTree, () => true)).toHaveLength(2);
   });
 });

@@ -2,6 +2,14 @@
    ForgeSF Workspace — VS Code-style dark chrome
    ────────────────────────────────────────────────────────────── */
 
+/*
+ * The Workspace deliberately wears VS Code's palette rather than the app's
+ * purple/cyan brand: it is a code editor, and developers read these greys as
+ * "editor chrome". That is a design decision, not drift — so the surface
+ * colours below are literal, while anything whose *meaning* is shared with the
+ * rest of the app (brand accent, fonts, motion) refers to the brand tokens so
+ * there is one definition rather than two that drift apart.
+ */
 .forge-ws {
   --fw-bg: #1e1e1e;
   --fw-bg-dark: #181818;
@@ -22,11 +30,17 @@
   --fw-muted: #858585;
   --fw-accent: #0078d4;
   --fw-accent-soft: rgba(0, 120, 212, 0.18);
-  --fw-brand: #6d5bff;
+  --fw-brand: var(--color-primary);
+
+  /* VS Code's own semantic colours — chosen to sit against the greys above
+     rather than the app's brighter brand set. */
   --fw-success: #89d185;
   --fw-warning: #cca700;
   --fw-error: #f14c4c;
   --fw-info: #75beff;
+
+  --fw-font-mono: var(--font-mono);
+  --fw-motion-fast: var(--motion-fast);
 
   display: flex;
   flex-direction: column;
@@ -303,4 +317,40 @@
 .forge-ws__boot-hint {
   font-size: 12px;
   letter-spacing: 0.04em;
+}
+
+/* ── Narrow windows ──────────────────────────────────────────────
+   The Workspace is a four-column layout (activity bar, sidebar, editor,
+   panel) and had no responsive handling at all — below roughly 1000px the
+   editor was squeezed to nothing. minWidth on the Tauri window is 1024, but
+   the app also runs in a browser during `pnpm dev`. */
+@media (max-width: 1080px) {
+  /* The sidebar is the first thing to give: the editor is the point. */
+  .forge-ws__panels [data-panel-id="forge-ws-sidebar"] {
+    min-width: 180px;
+  }
+
+  .forge-ws .fw-tree__row-actions {
+    /* Hover actions crowd out the filename in a narrow tree. */
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  /* Below this the activity bar's labels and the status bar's right-hand
+     items are noise; keep the editor usable instead. */
+  .forge-ws .workspace-statusbar__right .workspace-statusbar__item:not(:last-child) {
+    display: none;
+  }
+
+  .forge-ws__panels [data-panel-id="forge-ws-sidebar"] {
+    min-width: 150px;
+  }
+}
+
+@media (max-height: 620px) {
+  /* A short window should spend its height on the editor, not the terminal. */
+  .forge-ws .workspace-terminal__header {
+    display: none;
+  }
 }

@@ -6,6 +6,8 @@ import { useOrganizationStore } from "../../../store/orgStore";
 import { Button, Badge } from "../../../components/ui";
 import { Cloud, ExternalLink, Star, LogOut, Check, MapPin } from "lucide-react";
 
+import { isProtectedOrg, protectionPrompt } from "../lib/orgProtection";
+
 import styles from "./OrgCard.module.css";
 
 interface Props {
@@ -22,6 +24,7 @@ export default function OrgCard({ org }: Props) {
   );
 
   const isSelected = selectedOrganization?.id === org.id;
+  const isProtected = isProtectedOrg(org);
   const isConnected = org.status === "Connected";
 
   async function handleOpenOrg() {
@@ -46,8 +49,10 @@ export default function OrgCard({ org }: Props) {
   }
 
   async function handleRemove() {
-    const confirmRemove = window.confirm(`Logout ${org.username}?`);
-    if (!confirmRemove) return;
+    // Production gets the full identity of what is being disconnected.
+    const message =
+      protectionPrompt(org, "Log out") ?? `Log out ${org.username}?`;
+    if (!window.confirm(message)) return;
 
     try {
       await logoutOrg(org.username);
@@ -75,6 +80,12 @@ export default function OrgCard({ org }: Props) {
           </div>
           <span className={styles.username}>{org.username}</span>
         </div>
+
+        {isProtected && (
+          <Badge tone="warning" dot>
+            Protected
+          </Badge>
+        )}
 
         <Badge tone={isConnected ? "success" : "warning"} dot>
           {org.status}

@@ -3,7 +3,7 @@ import {
   Cloud,
   Database,
   Files,
-  GitBranch,
+  UploadCloud,
   Loader2,
   Search,
   Settings,
@@ -27,8 +27,8 @@ const ITEMS: Item[] = [
   { id: "search", label: "Search", icon: Search, shortcut: "Ctrl+Shift+F" },
   {
     id: "scm",
-    label: "Source Control",
-    icon: GitBranch,
+    label: "Pending Changes",
+    icon: UploadCloud,
     shortcut: "Ctrl+Shift+G",
   },
   {

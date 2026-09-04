@@ -7,15 +7,24 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  Loader2,
+  Rocket,
   RotateCw,
   Search,
   X,
 } from "lucide-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
+import { useOrganizationStore } from "../../../store/orgStore";
 import type { WorkspaceFile } from "../types";
 import { iconForFile } from "../lib/fileIcons";
-import { findNode, getAncestors, getParentPath } from "../lib/workspaceUtils";
+import {
+  findNode,
+  flattenVisible,
+  getAncestors,
+  getParentPath,
+} from "../lib/workspaceUtils";
 import FileContextMenu from "./FileContextMenu";
 
 import "./WorkspaceExplorer.css";
@@ -24,6 +33,9 @@ interface PendingCreate {
   parentPath: string;
   kind: "file" | "folder";
 }
+
+/** Row height in px — must match `.fw-tree-row` in WorkspaceExplorer.css. */
+const TREE_ROW_HEIGHT = 23;
 
 /* ─── Inline text input shared by rename + create ────────────── */
 
@@ -102,26 +114,30 @@ function filterTree(nodes: WorkspaceFile[], rawQuery: string): WorkspaceFile[] {
   return query ? walk(nodes) : nodes;
 }
 
-/* ─── Recursive tree row ─────────────────────────────────────── */
+/* ─── One tree row ───────────────────────────────────────────────
+   Flat, not recursive: the virtualiser needs a stable row index, which a
+   recursive component tree cannot provide. Nesting is drawn with indent
+   guides derived from `depth`. */
 
-interface TreeNodeProps {
+interface TreeRowProps {
   node: WorkspaceFile;
-  level: number;
-  expanded: Set<string>;
-  forceExpand: boolean;
+  depth: number;
+  isExpanded: boolean;
+  isLoading: boolean;
+  isActive: boolean;
+  isDirty: boolean;
+  isOpenTab: boolean;
+  isRenaming: boolean;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
-  selected: string | null;
-  dirty: (path: string) => boolean;
-  isOpen: (path: string) => boolean;
-  renamingPath: string | null;
   onStartRename: (path: string) => void;
   onCommitRename: (path: string, value: string) => void;
   onCancelRename: () => void;
-  creating: PendingCreate | null;
   onStartCreate: (parentPath: string, kind: "file" | "folder") => void;
-  onCommitCreate: (parentPath: string, name: string) => void;
-  onCancelCreate: () => void;
+  /** Inline deploy — omitted when no org is connected. */
+  onDeploy?: (path: string) => void;
+  deployDisabled: boolean;
+  deployTitle: string;
   onOpenContext: (
     event: React.MouseEvent,
     path: string,
@@ -129,213 +145,157 @@ interface TreeNodeProps {
   ) => void;
 }
 
-function TreeNode({
+function TreeRow({
   node,
-  level,
-  expanded,
-  forceExpand,
+  depth,
+  isExpanded,
+  isLoading,
+  isActive,
+  isDirty,
+  isOpenTab,
+  isRenaming,
   onToggle,
   onSelect,
-  selected,
-  dirty,
-  isOpen,
-  renamingPath,
   onStartRename,
   onCommitRename,
   onCancelRename,
-  creating,
   onStartCreate,
-  onCommitCreate,
-  onCancelCreate,
+  onDeploy,
+  deployDisabled,
+  deployTitle,
   onOpenContext,
-}: TreeNodeProps) {
+}: TreeRowProps) {
   const isFile = node.type === "file";
-  const hasChildren = Boolean(node.children && node.children.length > 0);
-  const isCollapsed = !forceExpand && !expanded.has(node.path);
-  const isActive = selected === node.path;
-  const isDirty = isFile && dirty(node.path);
-  const isOpenTab = isFile && isOpen(node.path);
-  const isRenaming = renamingPath === node.path;
+  // A folder can be expandable before its children are loaded, so trust the
+  // backend's `hasChildren` rather than the presence of a children array.
+  const expandable = !isFile && (node.hasChildren ?? Boolean(node.children));
 
-  return (
-    <div className="fw-tree-node" role="none">
-      <div
-        className={[
-          "fw-tree-row",
-          isFile ? "is-file" : "is-folder",
-          isActive ? "is-selected" : "",
-          isOpenTab && !isActive ? "is-open" : "",
-          isDirty ? "is-dirty" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-        data-path={node.path}
-        role="treeitem"
-        aria-selected={isActive}
-        aria-expanded={
-          isFile ? undefined : hasChildren ? !isCollapsed : undefined
-        }
-        tabIndex={0}
-        onClick={() => {
-          if (isFile || forceExpand) onSelect(node.path);
-          else if (hasChildren) onToggle(node.path);
-        }}
-        onDoubleClick={() => {
-          if (!isFile && hasChildren) onToggle(node.path);
-        }}
-        onContextMenu={(event) => onOpenContext(event, node.path, node.type)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            if (isFile) onSelect(node.path);
-            else if (hasChildren) onToggle(node.path);
-          }
-          if (event.key === "F2") {
-            event.preventDefault();
-            onStartRename(node.path);
-          }
-        }}
-      >
-        {Array.from({ length: level }).map((_, index) => (
+  if (isRenaming) {
+    return (
+      <div className="fw-tree__inline-row">
+        {Array.from({ length: depth }).map((_, index) => (
           <span key={index} className="fw-tree__guide" aria-hidden />
         ))}
+        <span className="fw-tree__chevron" />
+        <InlineInput
+          defaultValue={node.name}
+          onCommit={(value) => onCommitRename(node.path, value)}
+          onCancel={onCancelRename}
+        />
+      </div>
+    );
+  }
 
-        <span
-          className="fw-tree__chevron"
-          onClick={(event) => {
-            if (!isFile && hasChildren) {
+  return (
+    <div
+      className={[
+        "fw-tree-row",
+        isFile ? "is-file" : "is-folder",
+        isActive ? "is-selected" : "",
+        isOpenTab && !isActive ? "is-open" : "",
+        isDirty ? "is-dirty" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      data-path={node.path}
+      role="treeitem"
+      aria-selected={isActive}
+      aria-level={depth + 1}
+      aria-expanded={isFile ? undefined : expandable ? isExpanded : undefined}
+      tabIndex={0}
+      onClick={() => (isFile ? onSelect(node.path) : onToggle(node.path))}
+      onContextMenu={(event) => onOpenContext(event, node.path, node.type)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          if (isFile) onSelect(node.path);
+          else onToggle(node.path);
+        }
+        if (event.key === "F2") {
+          event.preventDefault();
+          onStartRename(node.path);
+        }
+      }}
+    >
+      {Array.from({ length: depth }).map((_, index) => (
+        <span key={index} className="fw-tree__guide" aria-hidden />
+      ))}
+
+      <span className="fw-tree__chevron">
+        {isLoading ? (
+          <Loader2 size={12} className="fw-tree__spinner" />
+        ) : expandable ? (
+          <ChevronRight
+            size={14}
+            className={`fw-tree__chevron-icon ${isExpanded ? "is-open" : ""}`}
+          />
+        ) : null}
+      </span>
+
+      <span className="fw-tree__icon">
+        {isFile ? (
+          <TreeFileIcon name={node.name} muted={isDirty} />
+        ) : isExpanded ? (
+          <FolderOpen
+            size={15}
+            className="fw-tree__folder fw-tree__folder--open"
+          />
+        ) : (
+          <Folder size={15} className="fw-tree__folder" />
+        )}
+      </span>
+
+      <span className="fw-tree__name">{node.name}</span>
+
+      <span className="fw-tree__row-actions">
+        {onDeploy && (
+          <button
+            type="button"
+            className="fw-tree__row-btn"
+            title={deployTitle}
+            disabled={deployDisabled}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
               event.stopPropagation();
-              onToggle(node.path);
-            }
-          }}
-        >
-          {!isFile && hasChildren ? (
-            <ChevronRight
-              size={14}
-              className={`fw-tree__chevron-icon ${isCollapsed ? "" : "is-open"}`}
-            />
-          ) : null}
-        </span>
-
-        <span className="fw-tree__icon">
-          {isFile ? (
-            <TreeFileIcon name={node.name} muted={isDirty} />
-          ) : isCollapsed ? (
-            <Folder size={15} className="fw-tree__folder" />
-          ) : (
-            <FolderOpen
-              size={15}
-              className="fw-tree__folder fw-tree__folder--open"
-            />
-          )}
-        </span>
-
-        {!isRenaming && <span className="fw-tree__name">{node.name}</span>}
-
-        {!isFile && !isRenaming && (
-          <span className="fw-tree__row-actions">
+              onDeploy(node.path);
+            }}
+          >
+            <Rocket size={13} />
+          </button>
+        )}
+        {!isFile && (
+          <>
             <button
-              type="button"
-              className="fw-tree__row-btn"
-              title="New File…"
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                onStartCreate(node.path, "file");
-              }}
-            >
-              <FilePlus2 size={13} />
-            </button>
-            <button
-              type="button"
-              className="fw-tree__row-btn"
-              title="New Folder…"
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                onStartCreate(node.path, "folder");
-              }}
-            >
+            type="button"
+            className="fw-tree__row-btn"
+            title="New File…"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onStartCreate(node.path, "file");
+            }}
+          >
+            <FilePlus2 size={13} />
+          </button>
+          <button
+            type="button"
+            className="fw-tree__row-btn"
+            title="New Folder…"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onStartCreate(node.path, "folder");
+            }}
+          >
               <FolderPlus size={13} />
             </button>
-          </span>
+          </>
         )}
+      </span>
 
-        {isDirty && !isRenaming && (
-          <span className="fw-tree__dirty" title="Unsaved changes" />
-        )}
-        {isOpenTab && !isActive && !isDirty && !isRenaming && (
-          <span className="fw-tree__tab-dot" title="Open in editor" />
-        )}
-      </div>
-
-      {isRenaming && (
-        <div className="fw-tree__inline-row">
-          {Array.from({ length: level }).map((_, index) => (
-            <span key={index} className="fw-tree__guide" aria-hidden />
-          ))}
-          <span className="fw-tree__chevron" />
-          <InlineInput
-            defaultValue={node.name}
-            onCommit={(value) => onCommitRename(node.path, value)}
-            onCancel={onCancelRename}
-          />
-        </div>
-      )}
-
-      {/* VS Code-style inline creation inside the target folder */}
-      {!isFile &&
-        creating &&
-        creating.parentPath === node.path &&
-        !isCollapsed && (
-          <div className="fw-tree__inline-row">
-            {Array.from({ length: level + 1 }).map((_, index) => (
-              <span key={index} className="fw-tree__guide" aria-hidden />
-            ))}
-            <span className="fw-tree__chevron" />
-            <span className="fw-tree__icon">
-              {creating.kind === "file" ? (
-                <FileText size={15} className="fw-tree__file-icon" />
-              ) : (
-                <Folder size={15} className="fw-tree__folder" />
-              )}
-            </span>
-            <InlineInput
-              placeholder={
-                creating.kind === "file" ? "file-name.cls" : "folder-name"
-              }
-              onCommit={(value) => onCommitCreate(node.path, value)}
-              onCancel={onCancelCreate}
-            />
-          </div>
-        )}
-
-      {!isFile && hasChildren && !isCollapsed && (
-        <div className="fw-tree__children" role="group">
-          {node.children!.map((child) => (
-            <TreeNode
-              key={child.path}
-              node={child}
-              level={level + 1}
-              expanded={expanded}
-              forceExpand={forceExpand}
-              onToggle={onToggle}
-              onSelect={onSelect}
-              selected={selected}
-              dirty={dirty}
-              isOpen={isOpen}
-              renamingPath={renamingPath}
-              onStartRename={onStartRename}
-              onCommitRename={onCommitRename}
-              onCancelRename={onCancelRename}
-              creating={creating}
-              onStartCreate={onStartCreate}
-              onCommitCreate={onCommitCreate}
-              onCancelCreate={onCancelCreate}
-              onOpenContext={onOpenContext}
-            />
-          ))}
-        </div>
+      {isDirty && <span className="fw-tree__dirty" title="Unsaved changes" />}
+      {isOpenTab && !isActive && !isDirty && (
+        <span className="fw-tree__tab-dot" title="Open in editor" />
       )}
     </div>
   );
@@ -364,6 +324,18 @@ export default function WorkspaceExplorer() {
   const openFolder = useWorkspaceStore((state) => state.openFolder);
   const workspaceName = useWorkspaceStore((state) => state.workspaceName);
   const revealRequest = useWorkspaceStore((state) => state.revealRequest);
+  const loadFolder = useWorkspaceStore((state) => state.loadFolder);
+  const loadFullTree = useWorkspaceStore((state) => state.loadFullTree);
+  const loadingFolders = useWorkspaceStore((state) => state.loadingFolders);
+  const deployPathsAction = useWorkspaceStore((state) => state.deployPathsAction);
+  const retrievePathsAction = useWorkspaceStore(
+    (state) => state.retrievePathsAction,
+  );
+  const openDiff = useWorkspaceStore((state) => state.openDiff);
+  const deploying = useWorkspaceStore((state) => state.deploying);
+  const organization = useOrganizationStore(
+    (state) => state.selectedOrganization,
+  );
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
@@ -411,13 +383,66 @@ export default function WorkspaceExplorer() {
   const filteredFiles = useMemo(() => filterTree(files, query), [files, query]);
   const isFiltering = query.trim().length > 0;
 
-  const toggleExpand = (path: string) =>
+  // Filtering has to match files the user never expanded to, so the first
+  // keystroke pays for one deep read. Without it the filter would silently
+  // only search folders that happened to be open.
+  useEffect(() => {
+    if (isFiltering) void loadFullTree();
+  }, [isFiltering, loadFullTree]);
+
+  const rows = useMemo(
+    () =>
+      flattenVisible(filteredFiles, (path) =>
+        isFiltering ? true : effectiveExpanded.has(path),
+      ),
+    [filteredFiles, effectiveExpanded, isFiltering],
+  );
+
+  // Fetch contents for anything expanded but not yet read — covers expanding a
+  // folder, revealing a file inside one, and re-expansion after a refresh.
+  useEffect(() => {
+    for (const { node } of rows) {
+      if (
+        node.type === "folder" &&
+        node.children === undefined &&
+        (node.hasChildren ?? false) &&
+        effectiveExpanded.has(node.path)
+      ) {
+        void loadFolder(node.path);
+      }
+    }
+  }, [rows, effectiveExpanded, loadFolder]);
+
+  /** Where the inline create input sits, and how deep it is indented. */
+  const createRow = useMemo(() => {
+    if (!pendingCreate || !pendingCreate.parentPath) return null;
+    const index = rows.findIndex(
+      (row) => row.node.path === pendingCreate.parentPath,
+    );
+    if (index === -1) return null;
+    return {
+      offset: (index + 1) * TREE_ROW_HEIGHT,
+      depth: rows[index].depth + 1,
+    };
+  }, [pendingCreate, rows]);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => TREE_ROW_HEIGHT,
+    overscan: 20,
+  });
+
+  const toggleExpand = (path: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
       else next.add(path);
       return next;
     });
+    void loadFolder(path);
+  };
 
   const startCreate = (parentPath: string, kind: "file" | "folder") => {
     setRenamingPath(null);
@@ -568,36 +593,101 @@ export default function WorkspaceExplorer() {
         </div>
       </div>
 
-      <div className="workspace-explorer__tree" role="tree" aria-label="Files">
-        {filteredFiles.map((node) => (
-          <TreeNode
-            key={node.path}
-            node={node}
-            level={0}
-            expanded={effectiveExpanded}
-            forceExpand={isFiltering}
-            onToggle={toggleExpand}
-            onSelect={(path) => void selectFile(path)}
-            selected={selectedFile}
-            dirty={dirty}
-            isOpen={isPathOpen}
-            renamingPath={renamingPath}
-            onStartRename={(path) => {
-              setPendingCreate(null);
-              setRenamingPath(path);
-            }}
-            onCommitRename={(path, value) => {
-              if (value.trim()) void renameItem(path, value.trim());
-              setRenamingPath(null);
-            }}
-            onCancelRename={() => setRenamingPath(null)}
-            creating={pendingCreate}
-            onStartCreate={startCreate}
-            onCommitCreate={commitCreate}
-            onCancelCreate={() => setPendingCreate(null)}
-            onOpenContext={handleOpenContext}
-          />
-        ))}
+      <div
+        className="workspace-explorer__tree"
+        role="tree"
+        aria-label="Files"
+        ref={scrollRef}
+      >
+        <div
+          className="workspace-explorer__rows"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {virtualizer.getVirtualItems().map((row) => {
+            const { node, depth } = rows[row.index];
+
+            return (
+              <div
+                key={node.path}
+                className="workspace-explorer__row"
+                style={{
+                  transform: `translateY(${row.start}px)`,
+                  height: TREE_ROW_HEIGHT,
+                }}
+              >
+                <TreeRow
+                  node={node}
+                  depth={depth}
+                  isExpanded={isFiltering || effectiveExpanded.has(node.path)}
+                  isLoading={loadingFolders.has(node.path)}
+                  isActive={selectedFile === node.path}
+                  isDirty={node.type === "file" && dirty(node.path)}
+                  isOpenTab={node.type === "file" && isPathOpen(node.path)}
+                  isRenaming={renamingPath === node.path}
+                  onToggle={toggleExpand}
+                  onSelect={(path) => void selectFile(path)}
+                  onStartRename={(path) => {
+                    setPendingCreate(null);
+                    setRenamingPath(path);
+                  }}
+                  onCommitRename={(path, value) => {
+                    if (value.trim()) void renameItem(path, value.trim());
+                    setRenamingPath(null);
+                  }}
+                  onCancelRename={() => setRenamingPath(null)}
+                  onStartCreate={startCreate}
+                  onDeploy={
+                    organization
+                      ? (target) => void deployPathsAction([target])
+                      : undefined
+                  }
+                  deployDisabled={deploying}
+                  deployTitle={
+                    organization
+                      ? `Deploy to ${organization.alias}`
+                      : "Connect an org to deploy"
+                  }
+                  onOpenContext={handleOpenContext}
+                />
+              </div>
+            );
+          })}
+
+          {/* Inline creation, positioned just under its parent row rather
+              than nested inside it: virtual rows have a fixed height. */}
+          {createRow && (
+            <div
+              className="fw-tree__inline-row workspace-explorer__row"
+              style={{
+                transform: `translateY(${createRow.offset}px)`,
+                height: TREE_ROW_HEIGHT,
+              }}
+            >
+              {Array.from({ length: createRow.depth }).map((_, index) => (
+                <span key={index} className="fw-tree__guide" aria-hidden />
+              ))}
+              <span className="fw-tree__chevron" />
+              <span className="fw-tree__icon">
+                {pendingCreate?.kind === "file" ? (
+                  <FileText size={15} className="fw-tree__file-icon" />
+                ) : (
+                  <Folder size={15} className="fw-tree__folder" />
+                )}
+              </span>
+              <InlineInput
+                placeholder={
+                  pendingCreate?.kind === "file"
+                    ? "file-name.cls"
+                    : "folder-name"
+                }
+                onCommit={(value) =>
+                  commitCreate(pendingCreate?.parentPath ?? "", value)
+                }
+                onCancel={() => setPendingCreate(null)}
+              />
+            </div>
+          )}
+        </div>
 
         {/* Root-level inline creation */}
         {pendingCreate && !pendingCreate.parentPath && (
@@ -635,7 +725,12 @@ export default function WorkspaceExplorer() {
           x={contextMenu.x}
           y={contextMenu.y}
           path={contextMenu.path}
+          type={contextMenu.type === "folder" ? "folder" : "file"}
+          hasOrg={Boolean(organization)}
           onClose={() => setContextMenu(null)}
+          onDeploy={(target) => void deployPathsAction([target])}
+          onRetrieve={(target) => void retrievePathsAction([target])}
+          onDiff={(target) => void openDiff(target)}
           onNewFile={(target) => startCreate(target, "file")}
           onNewFolder={(target) => startCreate(target, "folder")}
           onRename={menuRename}

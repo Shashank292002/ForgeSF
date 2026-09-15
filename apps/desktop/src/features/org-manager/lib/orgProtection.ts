@@ -1,3 +1,4 @@
+import type { ConfirmOptions } from "../../../components/ui/Confirm/confirm";
 import type { Organization } from "../types";
 
 /**
@@ -14,15 +15,24 @@ export function isProtectedOrg(org: Organization | null | undefined): boolean {
   return org.orgType === "Production";
 }
 
-/** Wording for a destructive action against `org`, or null when it is safe. */
+/**
+ * The confirmation for a destructive action against `org`, or null when it
+ * is safe to run without asking.
+ *
+ * @param action What is about to happen, as a phrase: "Log out".
+ * @param confirmLabel The confirm button; defaults to `action`.
+ */
 export function protectionPrompt(
   org: Organization | null | undefined,
   action: string,
-): string | null {
+  confirmLabel?: string,
+): ConfirmOptions | null {
   if (!isProtectedOrg(org) || !org) return null;
-  return (
-    `${action} on a PRODUCTION org?\n\n` +
-    `  ${org.alias}\n  ${org.username}\n  ${org.instanceUrl}\n\n` +
-    "This affects a live production environment."
-  );
+  return {
+    title: `${action} on a production org?`,
+    message: "This affects a live production environment.",
+    details: [org.alias, org.username, org.instanceUrl],
+    confirmLabel: confirmLabel ?? action,
+    tone: "danger",
+  };
 }

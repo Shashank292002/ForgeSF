@@ -1,72 +1,56 @@
 import { useState } from "react";
-import {
-  Plug,
-  Search,
-  Package,
-  Shield,
-  Wand2,
-  Box,
-  Download,
-  Check,
-} from "lucide-react";
+import { Plug, Search, Package, Shield, Wand2, Box } from "lucide-react";
 
-import { Button, Badge, Card, Input } from "../../components/ui";
+import { Badge, Card, Input } from "../../components/ui";
 
 import styles from "./PluginsPage.module.css";
 
-interface Plugin {
+interface PluginIdea {
   name: string;
   desc: string;
-  author: string;
-  version: string;
   icon: "brand" | "accent" | "warm" | "info";
-  installed: boolean;
 }
 
-const plugins: Plugin[] = [
+/**
+ * Plugin ideas, not installable plugins.
+ *
+ * This page used to present a catalogue with authors, version numbers,
+ * "Installed" badges and working Install/Uninstall toggles — none of which did
+ * anything. Until the plugin SDK exists it says what it is: a preview of what
+ * extensions could look like.
+ */
+const ideas: PluginIdea[] = [
   {
     name: "Bulk Data Exporter",
     desc: "Export large data volumes to CSV in parallel for performance.",
-    author: "ForgeSF",
-    version: "1.4.0",
     icon: "accent",
-    installed: true,
   },
   {
     name: "Flow Diagram View",
     desc: "Visualize Salesforce Flows as an interactive diagram.",
-    author: "Community",
-    version: "0.9.2",
     icon: "accent",
-    installed: false,
   },
   {
     name: "Snippet Library",
     desc: "Reusable SOQL and Apex snippets shared across your team.",
-    author: "ForgeSF",
-    version: "2.1.0",
     icon: "brand",
-    installed: true,
   },
   {
     name: "Code Formatter",
     desc: "Auto-format Apex and XML metadata before deployment.",
-    author: "Community",
-    version: "1.0.4",
     icon: "warm",
-    installed: false,
   },
   {
     name: "Permission Scanner",
     desc: "Scan profiles and permission sets for unused access.",
-    author: "ForgeSF",
-    version: "0.5.0",
     icon: "info",
-    installed: false,
   },
 ];
 
-const iconMap: Record<Plugin["icon"], { class: string; Icon: typeof Plug }> = {
+const iconMap: Record<
+  PluginIdea["icon"],
+  { class: string; Icon: typeof Plug }
+> = {
   brand: { class: styles.iconBrand, Icon: Shield },
   accent: { class: styles.iconAccent, Icon: Box },
   warm: { class: styles.iconWarm, Icon: Wand2 },
@@ -74,18 +58,11 @@ const iconMap: Record<Plugin["icon"], { class: string; Icon: typeof Plug }> = {
 };
 
 export default function PluginsPage() {
-  const [installed, setInstalled] = useState<Record<string, boolean>>(
-    Object.fromEntries(plugins.map((p) => [p.name, p.installed])),
-  );
   const [query, setQuery] = useState("");
 
-  const filtered = plugins.filter((p) =>
-    p.name.toLowerCase().includes(query.toLowerCase()),
+  const filtered = ideas.filter((idea) =>
+    idea.name.toLowerCase().includes(query.toLowerCase()),
   );
-
-  function toggle(name: string) {
-    setInstalled((s) => ({ ...s, [name]: !s[name] }));
-  }
 
   return (
     <div className={styles.page}>
@@ -95,9 +72,15 @@ export default function PluginsPage() {
             <Plug size={22} />
           </span>
           <div>
-            <h1 className={styles.title}>Plugins</h1>
+            <h1 className={styles.title}>
+              Plugins{" "}
+              <Badge tone="info" dot>
+                Preview
+              </Badge>
+            </h1>
             <p className={styles.subtitle}>
-              Extend ForgeSF with powerful community and first-party plugins.
+              Plugin support is on the roadmap. These are ideas for what
+              extensions could do — nothing here can be installed yet.
             </p>
           </div>
         </div>
@@ -105,7 +88,7 @@ export default function PluginsPage() {
         <div className={styles.search}>
           <Search size={16} />
           <Input
-            placeholder="Search plugins..."
+            placeholder="Search ideas..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className={styles.searchInput}
@@ -114,41 +97,25 @@ export default function PluginsPage() {
       </header>
 
       <div className={styles.grid}>
-        {filtered.map((plugin) => {
-          const { class: iconClass, Icon } = iconMap[plugin.icon];
-          const isInstalled = installed[plugin.name];
+        {filtered.map((idea) => {
+          const { class: iconClass, Icon } = iconMap[idea.icon];
 
           return (
-            <Card key={plugin.name} interactive className={styles.card}>
+            <Card key={idea.name} className={styles.card}>
               <div className={styles.cardTop}>
                 <span className={`${styles.cardIcon} ${iconClass}`}>
                   <Icon size={22} />
                 </span>
 
-                <Badge tone={isInstalled ? "success" : "default"} dot>
-                  {isInstalled ? "Installed" : "Not installed"}
+                <Badge tone="default" dot>
+                  Planned
                 </Badge>
               </div>
 
               <div>
-                <h3 className={styles.cardTitle}>{plugin.name}</h3>
-                <p className={styles.cardDesc}>{plugin.desc}</p>
+                <h3 className={styles.cardTitle}>{idea.name}</h3>
+                <p className={styles.cardDesc}>{idea.desc}</p>
               </div>
-
-              <div className={styles.meta}>
-                <span>{plugin.author}</span>
-                <span>v{plugin.version}</span>
-              </div>
-
-              <Button
-                variant={isInstalled ? "secondary" : "gradient"}
-                leftIcon={
-                  isInstalled ? <Check size={15} /> : <Download size={15} />
-                }
-                onClick={() => toggle(plugin.name)}
-              >
-                {isInstalled ? "Uninstall" : "Install"}
-              </Button>
             </Card>
           );
         })}

@@ -8,13 +8,17 @@ import {
   X,
 } from "lucide-react";
 
-import type { MetadataType } from "../../types";
 import { categoryForType } from "../../lib/categories";
 import { memberSummary } from "../../lib/retrieveSpecs";
+import {
+  needsExplicitMembers,
+  wildcardCaveat,
+  type CatalogType,
+} from "../../lib/typeCatalog";
 import MemberList from "./MemberList";
 
 interface Props {
-  metadata: MetadataType[];
+  metadata: CatalogType[];
   types: string[];
   activeType: string | null;
   componentsCache: Record<string, string[]>;
@@ -178,7 +182,15 @@ export default function RetrieveComponentsStep({
         <div className="mr-comps__hint">
           {picked.length > 0
             ? `${picked.length} component${picked.length === 1 ? "" : "s"} selected — only these will be retrieved.`
-            : "No components picked — every component of this type will be retrieved."}
+            : activeType &&
+                needsExplicitMembers(
+                  metadata.find((type) => type.xmlName === activeType),
+                )
+              ? "No components picked — every listed component will be retrieved by name (this type has no wildcard)."
+              : "No components picked — every component of this type will be retrieved."}
+          {picked.length === 0 && activeType && wildcardCaveat(activeType) && (
+            <> {wildcardCaveat(activeType)}</>
+          )}
         </div>
 
         <div className="mr-comps__list">

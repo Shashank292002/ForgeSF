@@ -8,4 +8,13 @@ import type { DiffEntry } from "./DiffEntry";
  * `read_diff_pair` so comparing a 200-file folder does not push megabytes
  * across the IPC boundary at once.
  */
-export type DiffSession = { sessionDir: string, target: string, entries: Array<DiffEntry>, };
+export type DiffSession = { 
+/**
+ * Names the session to `read_diff_pair`. A number, not a path: passing
+ * the directory itself let a crafted `..` read files outside it.
+ */
+sessionId: string, target: string, entries: Array<DiffEntry>, 
+/**
+ * Problems the retrieve reported, such as a component the org lacks.
+ */
+warnings: Array<string>, };

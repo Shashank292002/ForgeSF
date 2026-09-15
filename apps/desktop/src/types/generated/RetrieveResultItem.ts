@@ -3,4 +3,10 @@
 /**
  * One metadata type / group included in a retrieve batch, and its outcome.
  */
-export type RetrieveResultItem = { kind: string, status: string, retrieved: number, message: string | null, };
+export type RetrieveResultItem = { kind: string, status: string, retrieved: number, message: string | null, 
+/**
+ * Problems the CLI reported without failing the retrieve, such as a
+ * component that does not exist in the org. They used to be dropped, so
+ * a type could read "completed, 0 items" with no explanation.
+ */
+warnings: Array<string>, };

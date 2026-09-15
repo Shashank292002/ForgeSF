@@ -10,14 +10,55 @@ import { listOrgs } from "../services/tauri";
 
 import { useOrganizationStore } from "../store/orgStore";
 import { onPersistFailure } from "../services/persistQueue";
-import { useWorkspaceStore } from "../features/workspace/store/workspaceStore";
 import {
-  clearDiffSessions,
-  workspaceForOrg,
-} from "../features/workspace/services/workspaceService";
+  useWorkspaceStore,
+  waitForWorkspaceSync,
+} from "../features/workspace/store/workspaceStore";
+import { clearDiffSessions } from "../features/workspace/services/workspaceService";
+import { cliInfo } from "../features/deployments/services/deployService";
+import { useDeployJobsStore } from "../features/deployments/store/deployJobsStore";
+import { toast } from "../components/ui/Toast/toast";
+import type { Organization } from "../features/org-manager/types";
 
 interface Props {
   children: ReactNode;
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+/**
+ * Applies an org list, keeping the selection on the same org by id.
+ *
+ * `keepStatusFrom` carries statuses over from a previous list: a list read
+ * with `--skip-connection-status` reports every org as connected, which would
+ * otherwise hide an expired session the cache already knew about.
+ */
+function applyOrganizations(
+  organizations: Organization[],
+  preferredId: string | null,
+  keepStatusFrom?: Organization[],
+) {
+  const merged = keepStatusFrom
+    ? organizations.map((org) => {
+        const known = keepStatusFrom.find((item) => item.id === org.id);
+        return known ? { ...org, status: known.status } : org;
+      })
+    : organizations;
+
+  const selectedOrganization =
+    merged.find((org) => org.id === preferredId) ??
+    merged.find((org) => org.isDefault) ??
+    merged[0] ??
+    null;
+
+  useOrganizationStore.setState({
+    organizations: merged,
+    selectedOrganization,
+    selectedOrganizationId: selectedOrganization?.id ?? null,
+  });
+  return merged;
 }
 
 export default function AppInitializer({ children }: Props) {
@@ -30,70 +71,98 @@ export default function AppInitializer({ children }: Props) {
     initialized.current = true;
 
     async function initialize() {
-      // The locally cached list is only a fast first paint. The Salesforce CLI
-      // is the source of truth: it knows about orgs authenticated outside the
-      // app, and it knows which ones have expired — neither of which the cache
-      // could ever learn on its own.
-      let organizations = await getOrganizations().catch(() => []);
-      const selectedOrganizationId = await getSelectedOrganizationId().catch(
-        () => null,
-      );
+      const cached = await getOrganizations().catch(() => []);
+      const selectedId = await getSelectedOrganizationId().catch(() => null);
 
+      // 1. Paint the cached list immediately. Startup used to wait for
+      //    `sf org list` — which pings every org — before showing anything,
+      //    so pages behind OrgGuard said "No Organization Connected" for
+      //    several seconds on every launch.
+      if (cached.length > 0) {
+        applyOrganizations(cached, selectedId);
+        useOrganizationStore.setState({ orgsLoaded: true });
+      }
+
+      // 2. The CLI is the source of truth for *which* orgs exist; the fast
+      //    listing answers that without contacting each org.
+      let current = cached;
       try {
-        const live = await listOrgs();
-        organizations = live;
-        await saveOrganizations(live);
+        const fast = await listOrgs({ skipConnectionStatus: true });
+        current = applyOrganizations(
+          fast,
+          useOrganizationStore.getState().selectedOrganizationId ?? selectedId,
+          cached,
+        );
+        await saveOrganizations(current).catch(() => {});
       } catch (error) {
         // Keep the cached list so the app is still usable when the CLI is
         // missing or slow, but say so rather than silently showing stale orgs.
         useOrganizationStore.setState({
-          orgLoadError:
-            error instanceof Error
-              ? error.message
-              : "Could not reach the Salesforce CLI.",
+          orgLoadError: errorMessage(
+            error,
+            "Could not reach the Salesforce CLI.",
+          ),
         });
+      } finally {
+        useOrganizationStore.setState({ orgsLoaded: true });
       }
 
-      const selectedOrganization =
-        organizations.find((org) => org.id === selectedOrganizationId) ??
-        organizations.find((org) => org.isDefault) ??
-        organizations[0] ??
-        null;
+      // With nothing selected no org switch runs, so load the registry here.
+      if (!useOrganizationStore.getState().selectedOrganization) {
+        await useWorkspaceStore.getState().loadWorkspaces();
+      }
+      // Selecting the restored org above queued its workspace; opening it is
+      // the org listener's job alone, so it is not repeated here.
+      await waitForWorkspaceSync();
 
-      useOrganizationStore.setState({
-        organizations,
-        selectedOrganization,
-        selectedOrganizationId: selectedOrganization?.id ?? null,
-        orgsLoaded: true,
-      });
-
-      // The org owns the workspace, so resolve (and create on first use) the
-      // folder for whichever org we just restored before the editor mounts.
-      // Done here rather than via the org subscribe because setState above is
-      // the initial load, not a user-driven switch.
-      const workspaceStore = useWorkspaceStore.getState();
-      if (selectedOrganization) {
+      // 3. Connection statuses (expired sessions) take a network round-trip
+      //    per org, so they arrive last and without blocking anything.
+      if (current.length > 0) {
         try {
-          await workspaceForOrg(
-            selectedOrganization.id,
-            selectedOrganization.alias,
+          const full = await listOrgs();
+          applyOrganizations(
+            full,
+            useOrganizationStore.getState().selectedOrganizationId,
           );
+          await saveOrganizations(full);
+          useOrganizationStore.setState({ orgLoadError: null });
         } catch {
-          // Falls back to whatever get_workspace resolves to; the workspace
-          // page surfaces any real failure.
+          // The fast list is already showing; a failed status refresh only
+          // means statuses may be stale, which the cache already implied.
         }
       }
-      await workspaceStore.loadWorkspaces();
     }
 
     // Diff Check scratch directories are disposable; clear anything a previous
     // run left behind.
     void clearDiffSessions().catch(() => {});
 
+    // Deploys keep running in the org while ForgeSF is closed; follow any
+    // that had not finished, so their results and pending changes catch up.
+    void (async () => {
+      try {
+        await useDeployJobsStore.getState().loadHistory();
+        useDeployJobsStore.getState().resumeRunning();
+      } catch {
+        // History is a convenience; the Deployments page reads it again.
+      }
+    })();
+
+    // An old `sf` fails in confusing ways (unknown flags, no `--async`), so
+    // it is named up front.
+    void cliInfo()
+      .then((info) => {
+        useOrganizationStore.setState({
+          cliWarning: info.supported ? null : info.message,
+        });
+      })
+      .catch(() => {});
+
     // A failed write used to be swallowed: the UI reported success and the
-    // data was gone on next launch.
+    // data was gone on next launch. It then borrowed the org list's "could not
+    // reach the CLI" banner, which only the Organizations page shows.
     onPersistFailure((message) =>
-      useOrganizationStore.setState({ orgLoadError: message }),
+      toast.error(message, { title: "A setting was not saved" }),
     );
 
     void initialize();

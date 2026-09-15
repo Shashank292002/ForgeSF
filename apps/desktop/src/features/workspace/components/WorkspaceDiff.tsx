@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { DiffEditor } from "@monaco-editor/react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { DiffEditor, type DiffOnMount } from "@monaco-editor/react";
 import { ArrowLeft, Check, FileWarning, GitCompare, X } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
@@ -7,6 +7,8 @@ import { useDialog } from "../../../hooks/useDialog";
 import { readDiffPair } from "../services/workspaceService";
 import { languageForPath } from "../lib/editorLanguage";
 import { registerApexLanguage, defineForgeTheme } from "../lib/apexLanguage";
+// Side-effect import — see WorkspaceEditor: configures the bundled Monaco.
+import "../lib/monaco";
 import type { Monaco } from "../lib/monaco";
 import { getBaseName } from "../lib/workspaceUtils";
 import type { DiffEntry, DiffPair, DiffStatus } from "../types";
@@ -35,6 +37,65 @@ function handleBeforeMount(monaco: Monaco) {
   defineForgeTheme(monaco);
 }
 
+type StandaloneDiffEditor = Parameters<DiffOnMount>[0];
+
+/**
+ * Monaco's diff editor, read-only: the org on the left, the workspace right.
+ *
+ * `@monaco-editor/react` disposes a diff editor's models before the editor
+ * itself when it unmounts, which Monaco rejects ("TextModel got disposed
+ * before DiffEditorWidget model got reset") every time a diff was closed. The
+ * wrapper keeps its models instead, and they are released here — detached
+ * first — from a layout effect, whose cleanup runs before the wrapper's own.
+ */
+function OrgDiffEditor({
+  path,
+  original,
+  modified,
+}: {
+  path: string;
+  original: string;
+  modified: string;
+}) {
+  const editorRef = useRef<StandaloneDiffEditor | null>(null);
+
+  useLayoutEffect(
+    () => () => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const models = editor.getModel();
+      editor.setModel(null);
+      models?.original.dispose();
+      models?.modified.dispose();
+    },
+    [],
+  );
+
+  return (
+    <DiffEditor
+      height="100%"
+      theme="forge-dark"
+      language={languageForPath(path)}
+      original={original}
+      modified={modified}
+      keepCurrentOriginalModel
+      keepCurrentModifiedModel
+      beforeMount={handleBeforeMount}
+      onMount={(editor) => {
+        editorRef.current = editor;
+      }}
+      options={{
+        readOnly: true,
+        renderSideBySide: true,
+        fontSize: 13,
+        scrollBeyondLastLine: false,
+        automaticLayout: true,
+        minimap: { enabled: false },
+      }}
+    />
+  );
+}
+
 /**
  * Diff Check overlay: the workspace on the right, the org on the left.
  *
@@ -46,6 +107,7 @@ export default function WorkspaceDiff() {
   const loading = useWorkspaceStore((state) => state.diffLoading);
   const error = useWorkspaceStore((state) => state.diffError);
   const closeDiff = useWorkspaceStore((state) => state.closeDiff);
+  const workspaceId = useWorkspaceStore((state) => state.openWorkspaceId);
 
   const [selected, setSelected] = useState<string | null>(null);
   const [pair, setPair] = useState<DiffPair | null>(null);
@@ -81,11 +143,23 @@ export default function WorkspaceDiff() {
       setPair(null);
       setPairError(null);
       try {
-        const result = await readDiffPair(session.sessionDir, active);
+        // An org copy stored under a different folder layout carries its own
+        // path; the pair is read from there.
+        const orgPath =
+          session.entries.find((entry) => entry.path === active)?.orgPath ??
+          null;
+        const result = await readDiffPair(
+          session.sessionId,
+          active,
+          orgPath,
+          workspaceId,
+        );
         if (!cancelled) setPair(result);
       } catch (caught) {
         if (!cancelled) {
-          setPairError(caught instanceof Error ? caught.message : String(caught));
+          setPairError(
+            caught instanceof Error ? caught.message : String(caught),
+          );
         }
       }
     };
@@ -95,7 +169,7 @@ export default function WorkspaceDiff() {
     return () => {
       cancelled = true;
     };
-  }, [session, active]);
+  }, [session, active, workspaceId]);
 
   const changedCount = entries.filter((e) => e.status !== "identical").length;
 
@@ -172,6 +246,14 @@ export default function WorkspaceDiff() {
                   : `${changedCount} file(s) differ from the org.`}
               </div>
 
+              {session.warnings.length > 0 && (
+                <ul className="fw-diff__warnings" role="status">
+                  {session.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              )}
+
               <div className="fw-diff__list">
                 {entries.map((entry) => (
                   <button
@@ -214,21 +296,10 @@ export default function WorkspaceDiff() {
                 <span>Org</span>
                 <span>Workspace</span>
               </div>
-              <DiffEditor
-                height="100%"
-                theme="forge-dark"
-                language={languageForPath(active)}
+              <OrgDiffEditor
+                path={active}
                 original={pair.org}
                 modified={pair.local}
-                beforeMount={handleBeforeMount}
-                options={{
-                  readOnly: true,
-                  renderSideBySide: true,
-                  fontSize: 13,
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  minimap: { enabled: false },
-                }}
               />
             </div>
           )}

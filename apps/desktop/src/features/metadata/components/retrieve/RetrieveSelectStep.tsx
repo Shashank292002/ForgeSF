@@ -1,7 +1,7 @@
 import { createElement, useMemo } from "react";
 import { Check, Search, X } from "lucide-react";
 
-import type { MetadataType } from "../../types";
+import type { CatalogType } from "../../lib/typeCatalog";
 import type { MetadataCategoryKey } from "../../lib/categories";
 import {
   categoryForType,
@@ -11,7 +11,7 @@ import {
 } from "../../lib/categories";
 
 interface Props {
-  metadata: MetadataType[];
+  metadata: CatalogType[];
   selectedTypes: string[];
   loading: boolean;
   error: string | null;
@@ -181,8 +181,12 @@ export default function RetrieveSelectStep({
                 <span className="mr-type__main">
                   <span className="mr-type__name">{type.xmlName}</span>
                   <span className="mr-type__meta">
-                    {type.suffix ? `.${type.suffix}` : "metadata"}
-                    {type.inFolder ? " · folder" : ""}
+                    {type.parent
+                      ? `part of ${type.parent}`
+                      : type.suffix
+                        ? `.${type.suffix}`
+                        : "metadata"}
+                    {type.inFolder ? " · in folders" : ""}
                   </span>
                 </span>
               </button>

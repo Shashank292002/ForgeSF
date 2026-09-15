@@ -580,6 +580,10 @@
 .mr-prog-row.is-failed {
   border-color: var(--mr-error-soft);
 }
+.mr-prog-row.is-skipped {
+  border-style: dashed;
+  color: var(--mr-muted);
+}
 
 .mr-prog-row__icon {
   width: 26px;
@@ -712,6 +716,37 @@
 }
 .mr-result-row.is-ok {
   border-color: var(--mr-success-soft);
+}
+.mr-result-row.is-skipped {
+  border-style: dashed;
+}
+.mr-result-row.is-skipped .mr-result-row__icon {
+  color: var(--mr-muted);
+}
+.mr-result-group .mr-result-row {
+  margin-bottom: 0;
+}
+.mr-result-group {
+  margin-bottom: 8px;
+}
+
+/* Non-fatal problems a retrieve reported for one type. */
+.mr-result-warnings {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 6px 14px 2px 50px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--mr-warning);
+}
+.mr-result-warnings li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .mr-result-row__icon {

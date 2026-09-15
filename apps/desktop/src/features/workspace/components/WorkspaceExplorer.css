@@ -19,6 +19,35 @@
 .forge-ws .fw-tree__inline-input:focus {
   outline: none;
 }
+.forge-ws .fw-tree__inline-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.forge-ws .fw-tree__inline-input.is-invalid {
+  border-color: var(--fw-error);
+}
+/* Why a name can't be used, under the input while typing */
+.forge-ws .fw-tree__inline-problem {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 3;
+  padding: 5px 8px;
+  background: #5a1d1d;
+  border: 1px solid var(--fw-error);
+  border-radius: 3px;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+}
+/* The row being edited paints over the rows below it, for the message */
+.workspace-explorer__row.is-editing {
+  z-index: 2;
+}
 
 /* Shell layout (independent scrolling) --------------------------- */
 .workspace-explorer {
@@ -179,6 +208,15 @@
 .workspace-explorer__tree::-webkit-scrollbar-corner {
   background: transparent;
 }
+/* The tree takes focus as a whole; the focused row shows it instead. */
+.workspace-explorer__tree:focus {
+  outline: none;
+}
+/* Dropping onto the empty space moves to the workspace root */
+.forge-ws .workspace-explorer__tree.is-drop-target {
+  background: rgba(0, 120, 212, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.55);
+}
 
 .forge-ws .fw-tree-node {
   display: flex;
@@ -285,21 +323,28 @@
   box-sizing: border-box;
 }
 
-/* Row states: hover / selected / open / dirty -------------------- */
+/* Row states: hover / selected / focused / active / open / cut ---- */
 .forge-ws .fw-tree-row:hover:not(.is-selected) {
   background: var(--fw-bg-hover);
 }
-.forge-ws .fw-tree-row:focus-visible {
+
+/* Selected rows: blue while the explorer has focus, grey once it moves on */
+.forge-ws .fw-tree-row.is-selected,
+.forge-ws .fw-tree-row.is-selected:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+.forge-ws .workspace-explorer__tree:focus-within .fw-tree-row.is-selected {
+  background: rgba(0, 120, 212, 0.3);
+}
+
+/* The row keyboard commands act on */
+.forge-ws .workspace-explorer__tree:focus .fw-tree-row.is-focused {
   outline: 1px solid var(--fw-accent);
   outline-offset: -1px;
 }
 
-/* The currently open file: subtle accent + left bar */
-.forge-ws .fw-tree-row.is-selected,
-.forge-ws .fw-tree-row.is-selected:hover {
-  background: rgba(0, 120, 212, 0.22);
-}
-.forge-ws .fw-tree-row.is-selected::before {
+/* The file shown in the editor: left bar + bright name */
+.forge-ws .fw-tree-row.is-active::before {
   content: "";
   position: absolute;
   left: 0;
@@ -308,19 +353,31 @@
   width: 2px;
   background: var(--fw-accent);
 }
-.forge-ws .fw-tree-row.is-selected .fw-tree__name {
+.forge-ws .fw-tree-row.is-active .fw-tree__name {
   color: #fff;
 }
-.forge-ws .fw-tree-row.is-selected .fw-tree__file-icon {
+.forge-ws .fw-tree-row.is-active .fw-tree__file-icon {
   color: #cfe6ff;
 }
 
 /* Open in a tab but not the active editor file */
-.forge-ws .fw-tree-row.is-open:not(.is-selected) .fw-tree__name {
+.forge-ws .fw-tree-row.is-open .fw-tree__name {
   color: #e3e3e3;
 }
-.forge-ws .fw-tree-row.is-open:not(.is-selected) .fw-tree__file-icon {
+.forge-ws .fw-tree-row.is-open .fw-tree__file-icon {
   color: #b8c4d6;
+}
+
+/* Cut, waiting to be pasted somewhere else */
+.forge-ws .fw-tree-row.is-cut .fw-tree__name,
+.forge-ws .fw-tree-row.is-cut .fw-tree__icon {
+  opacity: 0.5;
+}
+
+/* A drag would drop into this folder (the folder and what is in it) */
+.forge-ws .workspace-explorer__tree .fw-tree-row.is-drop-target,
+.forge-ws .workspace-explorer__tree:focus-within .fw-tree-row.is-drop-target {
+  background: rgba(0, 120, 212, 0.16);
 }
 
 /* Modified-file indicator: small dot on the right, like a tab dot */
@@ -398,6 +455,36 @@
 }
 .workspace-explorer__empty p {
   margin: 0;
+}
+.workspace-explorer__empty .workspace-explorer__empty-hint {
+  font-size: 12px;
+  margin-top: -4px;
+}
+.workspace-explorer__empty-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 190px;
+}
+.workspace-explorer__empty-actions .fw-btn {
+  justify-content: center;
+}
+
+/* Drag image for several items. It lives on <body>, outside .forge-ws, so
+   it can't use the workspace colour variables. */
+.workspace-explorer__drag-count {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  background: #0078d4;
+  color: #fff;
+  font:
+    600 12px/1.4 system-ui,
+    sans-serif;
+  white-space: nowrap;
 }
 
 /* Context menu --------------------------------------------------- */

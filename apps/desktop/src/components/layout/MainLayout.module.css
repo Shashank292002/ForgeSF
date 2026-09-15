@@ -42,6 +42,42 @@
   overflow-x: hidden;
 }
 
+/* Missing or outdated Salesforce CLI */
+.cliWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.cliWarning svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.cliWarning span {
+  flex: 1;
+}
+
+.cliWarningClose {
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
 /* Full-bleed editor experience for the Workspace */
 .workspaceMain {
   padding: 0;

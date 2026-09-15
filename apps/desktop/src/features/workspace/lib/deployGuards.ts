@@ -1,5 +1,37 @@
+import type { ConfirmOptions } from "@/components/ui/Confirm/confirm";
 import { isProtectedOrg } from "@/features/org-manager/lib/orgProtection";
 import type { Organization } from "@/features/org-manager/types";
+import type { Workspace } from "../types";
+
+/**
+ * The confirmation for deploying a workspace to an org it does not belong to,
+ * or null when the two match (or the workspace belongs to no org).
+ *
+ * Each org owns its own folder. Sending one org's folder to another is a
+ * legitimate promotion (sandbox → production), but it is also exactly what a
+ * stale org selection looks like, so it is always named before it runs.
+ */
+export function workspaceOrgMismatchPrompt(
+  workspace: Workspace | null | undefined,
+  target: Organization | null | undefined,
+  organizations: Organization[],
+): ConfirmOptions | null {
+  if (!workspace || !target || !workspace.orgId) return null;
+  if (workspace.orgId === target.id) return null;
+
+  const owner =
+    organizations.find((org) => org.id === workspace.orgId)?.alias ??
+    "a different org";
+
+  return {
+    title: `Deploy ${owner}'s files to ${target.alias}?`,
+    message:
+      `The open workspace "${workspace.name}" belongs to ${owner}, ` +
+      `but the deploy targets ${target.alias} (${target.username}).`,
+    confirmLabel: `Deploy to ${target.alias}`,
+    tone: "danger",
+  };
+}
 
 /**
  * Whether deploying to `org` should ask first.

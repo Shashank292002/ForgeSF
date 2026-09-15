@@ -21,7 +21,9 @@ import WorkspaceToolbar from "./components/WorkspaceToolbar";
 import MetadataLauncher from "../metadata/components/retrieve/MetadataLauncher";
 import MetadataRetriever from "../metadata/components/retrieve/MetadataRetriever";
 import WorkspaceDiff from "./components/WorkspaceDiff";
+import QuickInput from "./components/QuickInput";
 import { useWorkspaceInit } from "./hooks/useWorkspaceInit";
+import { useWorkspaceCommands } from "./hooks/useWorkspaceCommands";
 import { useWorkspaceShortcuts } from "./hooks/useWorkspaceShortcuts";
 import { useWorkspaceStore } from "./store/workspaceStore";
 
@@ -48,11 +50,14 @@ export default function WorkspacePage() {
   // The diff overlay is open while a session is loading, failed or ready.
   const diffOpen = useWorkspaceStore(
     (state) =>
-      state.diffLoading || state.diffError !== null || state.diffSession !== null,
+      state.diffLoading ||
+      state.diffError !== null ||
+      state.diffSession !== null,
   );
 
   const { loaded, error, booting } = useWorkspaceInit();
-  useWorkspaceShortcuts();
+  const commands = useWorkspaceCommands();
+  useWorkspaceShortcuts(commands);
 
   const bottomPanelRef = useRef<ImperativePanelHandle>(null);
 
@@ -181,6 +186,8 @@ export default function WorkspacePage() {
       </div>
 
       <WorkspaceStatusBar />
+
+      <QuickInput commands={commands} />
 
       {diffOpen && <WorkspaceDiff />}
 

@@ -1,4 +1,4 @@
-import { Search, Menu, User } from "lucide-react";
+import { Menu, User } from "lucide-react";
 
 import { useOrganizationStore } from "../../store/orgStore";
 
@@ -31,15 +31,8 @@ export default function AppHeader({ onToggleSidebar }: AppHeaderProps) {
         </div>
       </div>
 
-      <div className={styles.search}>
-        <Search size={17} />
-        <input
-          className={styles.searchInput}
-          disabled
-          title="Global search is not implemented yet"
-          placeholder="Search (coming soon)"
-        />
-      </div>
+      {/* Global search is not built yet, so no disabled box advertises it;
+          it returns with the command palette. */}
 
       <div className={styles.actions}>
         <div className={styles.orgPill}>

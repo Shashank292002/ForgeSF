@@ -26,6 +26,40 @@ export function buildRetrieveSpecs(
 }
 
 /**
+ * `buildRetrieveSpecs`, but naming every member of the types that cannot be
+ * retrieved by wildcard (folder and child types — see `needsExplicitMembers`).
+ *
+ * `fullMembers` holds the complete member list for each such type. A type
+ * with no picks and an empty list has nothing to retrieve and is returned in
+ * `empty` instead of being sent to the CLI, where it would fail.
+ */
+export function resolveRetrieveSpecs(
+  selectedTypes: string[],
+  selectedMembers: Record<string, string[]>,
+  fullMembers: Record<string, string[]>,
+): { specs: string[]; empty: string[] } {
+  const specs: string[] = [];
+  const empty: string[] = [];
+
+  for (const kind of selectedTypes) {
+    const picked = selectedMembers[kind] ?? [];
+    const all = fullMembers[kind];
+
+    if (picked.length > 0) {
+      for (const member of picked) specs.push(`${kind}:${member}`);
+    } else if (all === undefined) {
+      specs.push(kind);
+    } else if (all.length === 0) {
+      empty.push(kind);
+    } else {
+      for (const member of all) specs.push(`${kind}:${member}`);
+    }
+  }
+
+  return { specs, empty };
+}
+
+/**
  * Human summary of what a retrieve will pull, per selected type:
  * `"3 of 120"` when members are narrowed, or `"all"` otherwise.
  */

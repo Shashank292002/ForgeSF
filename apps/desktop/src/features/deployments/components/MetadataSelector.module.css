@@ -5,8 +5,8 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  height: 100%;
   min-height: 320px;
+  max-height: 600px;
 }
 
 .header {
@@ -128,6 +128,12 @@
   color: var(--color-primary);
 }
 
+.pillCount {
+  font-size: 10px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
 .list {
   flex: 1;
   overflow-y: auto;
@@ -168,8 +174,14 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 8px 10px;
+  border: none;
   border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   transition: background var(--motion-fast);
 }

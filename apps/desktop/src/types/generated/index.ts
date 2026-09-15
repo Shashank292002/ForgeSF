@@ -10,16 +10,39 @@
  * which is exactly how `connectedAt` came to be declared in TypeScript and
  * never sent by Rust.
  */
-export type { DeployOutcome } from "./DeployOutcome";
+export type { CliInfo } from "./CliInfo";
+export type { ComponentFailure } from "./ComponentFailure";
+export type { CopyResult } from "./CopyResult";
+export type { CoverageEntry } from "./CoverageEntry";
+export type { DeployOptions } from "./DeployOptions";
+export type { DeployRecord } from "./DeployRecord";
+export type { DeployReport } from "./DeployReport";
+export type { DeployScope } from "./DeployScope";
 export type { DiffEntry } from "./DiffEntry";
 export type { DiffPair } from "./DiffPair";
 export type { DiffSession } from "./DiffSession";
+export type { FileContent } from "./FileContent";
 export type { FileNode } from "./FileNode";
+export type { FileStamp } from "./FileStamp";
+export type { GitChange } from "./GitChange";
 export type { MetadataType } from "./MetadataType";
 export type { OrgDetails } from "./OrgDetails";
 export type { Organization } from "./Organization";
+export type { PathChange } from "./PathChange";
+export type { RenameResult } from "./RenameResult";
 export type { RetrieveProgressEvent } from "./RetrieveProgressEvent";
 export type { RetrieveResult } from "./RetrieveResult";
 export type { RetrieveResultItem } from "./RetrieveResultItem";
+export type { SearchFileResult } from "./SearchFileResult";
+export type { SearchMatch } from "./SearchMatch";
+export type { SearchRequest } from "./SearchRequest";
+export type { SearchResults } from "./SearchResults";
+export type { TerminalChunk } from "./TerminalChunk";
+export type { TerminalEvent } from "./TerminalEvent";
+export type { TerminalExit } from "./TerminalExit";
+export type { TestFailure } from "./TestFailure";
+export type { WorkspaceChanges } from "./WorkspaceChanges";
 export type { WorkspaceEntry } from "./WorkspaceEntry";
+export type { WorkspaceFileList } from "./WorkspaceFileList";
+export type { WorkspaceFsEvent } from "./WorkspaceFsEvent";
 export type { WorkspaceRegistry } from "./WorkspaceRegistry";

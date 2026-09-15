@@ -1,11 +1,14 @@
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import {
+  createBrowserRouter,
+  Navigate,
+  RouterProvider,
+} from "react-router-dom";
 
 import MainLayout from "../../components/layout/MainLayout";
 
 import DashboardPage from "../../features/dashboard/DashboardPage";
 import OrgManagerPage from "../../features/org-manager/OrgManagerPage";
 import MetadataPage from "../../features/metadata/MetadataPage";
-import ApexPage from "../../features/apex/ApexPage";
 import SOQLPage from "../../features/soql/SOQLPage";
 import DeploymentsPage from "../../features/deployments/DeploymentsPage";
 import PluginsPage from "../../features/plugins/PluginsPage";
@@ -39,8 +42,11 @@ const router = createBrowserRouter([
       },
 
       {
+        // The standalone Apex page duplicated Developer Tools' Apex tab with
+        // weaker error handling and no production guard. Old links land on
+        // the tab instead.
         path: "apex",
-        element: <ApexPage />,
+        element: <Navigate to="/devtools?tab=apex" replace />,
       },
 
       {

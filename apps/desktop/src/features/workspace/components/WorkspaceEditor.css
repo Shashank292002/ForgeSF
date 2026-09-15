@@ -154,3 +154,52 @@
   color: var(--fw-accent);
   border-color: var(--fw-accent-soft);
 }
+
+/* Changed on disk while edited ----------------------------------- */
+.workspace-editor__conflict {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 6px 10px;
+  background: rgba(204, 167, 0, 0.12);
+  border-bottom: 1px solid rgba(204, 167, 0, 0.45);
+  color: var(--fw-text);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.workspace-editor__conflict-icon {
+  color: var(--fw-warning);
+  flex-shrink: 0;
+}
+
+.workspace-editor__conflict-text {
+  flex: 1;
+  min-width: 200px;
+  line-height: 1.4;
+}
+
+.workspace-editor__conflict-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.workspace-editor__conflict .workspace-editor__action:not(.is-active) {
+  color: var(--fw-text);
+  border-color: var(--fw-border);
+}
+
+.workspace-editor__action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.workspace-editor__action:disabled:hover {
+  background: transparent;
+  color: var(--fw-muted);
+}
+.workspace-editor__action:focus-visible {
+  outline: 1px solid var(--fw-accent);
+  outline-offset: -1px;
+}

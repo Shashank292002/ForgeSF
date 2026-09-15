@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { getBaseName } from "../lib/workspaceUtils";
 import { iconForFile } from "../lib/fileIcons";
+import { Menu, MenuItem } from "../../../components/ui";
 
 import "./WorkspaceTabs.css";
 
@@ -15,107 +16,100 @@ export default function WorkspaceTabs() {
   const openFiles = useWorkspaceStore((state) => state.openFiles);
   const selectedFile = useWorkspaceStore((state) => state.selectedFile);
   const selectFile = useWorkspaceStore((state) => state.selectFile);
-  const closeFile = useWorkspaceStore((state) => state.closeFile);
+  // Asks once about unsaved changes: save them, drop them, or close nothing.
+  // It used to be OK/Cancel per file, where OK meant "discard".
+  const closeTabs = useWorkspaceStore((state) => state.closeFiles);
   const dirty = useWorkspaceStore((state) => state.dirty);
-  const activeTabRef = useRef<HTMLDivElement | null>(null);
+  const tabRefs = useRef(new Map<string, HTMLDivElement>());
   const [menu, setMenu] = useState<TabMenu | null>(null);
 
   // Keep the active tab visible when many files are open.
   useEffect(() => {
-    activeTabRef.current?.scrollIntoView({
+    if (!selectedFile) return;
+    tabRefs.current.get(selectedFile)?.scrollIntoView({
       block: "nearest",
       inline: "nearest",
     });
   }, [selectedFile]);
 
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!menu) return;
-    // Only close on clicks *outside* the menu. Closing on any mousedown
-    // unmounted the menu before the button's click event could fire, so every
-    // item in it was unreachable.
-    const onPointerDown = (event: MouseEvent) => {
-      if (menuRef.current?.contains(event.target as Node)) return;
-      setMenu(null);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenu(null);
-    };
-    const close = () => setMenu(null);
-
-    window.addEventListener("mousedown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("blur", close);
-    return () => {
-      window.removeEventListener("mousedown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("blur", close);
-    };
-  }, [menu]);
-
-  /** Closes a tab, protecting unsaved changes from accidental loss. */
-  const requestClose = (file: string) => {
-    if (dirty[file]) {
-      const name = getBaseName(file);
-      const confirmed = window.confirm(
-        `"${name}" has unsaved changes.\n\nClose without saving?`,
-      );
-      if (!confirmed) return;
-    }
-    closeFile(file);
-  };
-
-  const closeOthers = (path: string) => {
-    for (const file of openFiles) {
-      if (file === path) continue;
-      if (dirty[file]) {
-        const name = getBaseName(file);
-        if (
-          !window.confirm(
-            `"${name}" has unsaved changes.\n\nClose without saving?`,
-          )
-        ) {
-          continue;
-        }
-      }
-      closeFile(file);
-    }
-  };
-
-  const closeAll = () => {
-    for (const file of [...openFiles]) {
-      if (dirty[file]) {
-        const name = getBaseName(file);
-        if (
-          !window.confirm(
-            `"${name}" has unsaved changes.\n\nClose without saving?`,
-          )
-        ) {
-          continue;
-        }
-      }
-      closeFile(file);
-    }
-  };
-
   if (openFiles.length === 0) return null;
+
+  const focusTab = (path: string | null) => {
+    if (path) tabRefs.current.get(path)?.focus();
+  };
+
+  const closeAndRefocus = async (files: string[]) => {
+    await closeTabs(files);
+    // Focus follows to the tab that is active now, instead of falling to the
+    // page when the focused tab went away.
+    focusTab(useWorkspaceStore.getState().selectedFile);
+  };
+
+  /** Tabs are one stop for Tab; arrows move between them, as in a tab strip. */
+  const onTabKeyDown = (event: KeyboardEvent<HTMLDivElement>, file: string) => {
+    const index = openFiles.indexOf(file);
+    const moveTo = (next: number) => {
+      const target = openFiles[(next + openFiles.length) % openFiles.length];
+      void selectFile(target);
+      focusTab(target);
+    };
+
+    switch (event.key) {
+      case "ArrowRight":
+        moveTo(index + 1);
+        break;
+      case "ArrowLeft":
+        moveTo(index - 1);
+        break;
+      case "Home":
+        moveTo(0);
+        break;
+      case "End":
+        moveTo(openFiles.length - 1);
+        break;
+      case "Enter":
+      case " ":
+        void selectFile(file);
+        break;
+      case "Delete":
+        void closeAndRefocus([file]);
+        break;
+      case "ContextMenu":
+      case "F10": {
+        if (event.key === "F10" && !event.shiftKey) return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        setMenu({ x: rect.left + 12, y: rect.bottom, path: file });
+        break;
+      }
+      default:
+        return;
+    }
+    event.preventDefault();
+  };
 
   return (
     <div className="fw-tabs-wrap">
-      <div className="fw-tabs" role="tablist">
+      <div className="fw-tabs" role="tablist" aria-label="Open files">
         {openFiles.map((file) => {
           const isActive = file === selectedFile;
           const isDirty = Boolean(dirty[file]);
+          const name = getBaseName(file);
           const Icon = iconForFile(file, "file");
           return (
             <div
               key={file}
-              ref={isActive ? activeTabRef : undefined}
+              ref={(element) => {
+                if (element) tabRefs.current.set(file, element);
+                else tabRefs.current.delete(file);
+              }}
               role="tab"
               aria-selected={isActive}
+              // Unsaved changes show as a dot; say so in words too.
+              aria-label={isDirty ? `${name}, unsaved changes` : name}
+              tabIndex={isActive ? 0 : -1}
               className={`fw-tab ${isActive ? "is-active" : ""}`}
               onClick={() => void selectFile(file)}
+              onKeyDown={(event) => onTabKeyDown(event, file)}
               onContextMenu={(event) => {
                 event.preventDefault();
                 setMenu({ x: event.clientX, y: event.clientY, path: file });
@@ -123,20 +117,23 @@ export default function WorkspaceTabs() {
               onMouseDown={(event) => {
                 if (event.button === 1) {
                   event.preventDefault();
-                  requestClose(file);
+                  void closeTabs([file]);
                 }
               }}
               title={file}
             >
-              <Icon size={14} className="fw-tab__icon" />
-              <span className="fw-tab__label">{getBaseName(file)}</span>
+              <Icon size={14} className="fw-tab__icon" aria-hidden />
+              <span className="fw-tab__label">{name}</span>
               <button
                 type="button"
                 className="fw-tab__close"
-                title={isDirty ? "Close without saving" : "Close"}
+                title={isDirty ? "Close (unsaved changes)" : "Close"}
+                aria-label={`Close ${name}`}
+                // Delete closes the focused tab; one Tab stop per tab strip.
+                tabIndex={-1}
                 onClick={(event) => {
                   event.stopPropagation();
-                  requestClose(file);
+                  void closeTabs([file]);
                 }}
               >
                 {isDirty ? (
@@ -151,39 +148,29 @@ export default function WorkspaceTabs() {
       </div>
 
       {menu && (
-        <div
-          ref={menuRef}
+        <Menu
           className="fw-tabs-menu"
-          style={{ left: menu.x, top: menu.y }}
+          label="Tab actions"
+          at={{ x: menu.x, y: menu.y }}
+          onClose={() => setMenu(null)}
         >
-          <button
-            type="button"
-            onClick={() => {
-              requestClose(menu.path);
-              setMenu(null);
-            }}
-          >
+          <MenuItem onSelect={() => void closeAndRefocus([menu.path])}>
             Close
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              closeOthers(menu.path);
-              setMenu(null);
-            }}
+          </MenuItem>
+          <MenuItem
+            onSelect={() =>
+              void closeAndRefocus(
+                openFiles.filter((file) => file !== menu.path),
+              )
+            }
+            disabled={openFiles.length < 2}
           >
             Close Others
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              closeAll();
-              setMenu(null);
-            }}
-          >
+          </MenuItem>
+          <MenuItem onSelect={() => void closeAndRefocus([...openFiles])}>
             Close All
-          </button>
-        </div>
+          </MenuItem>
+        </Menu>
       )}
     </div>
   );

@@ -1,12 +1,13 @@
+import { useState } from "react";
 import { Plus } from "lucide-react";
 
 import { Button } from "../../../components/ui";
-import { useConnectOrg } from "../hooks/useConnectOrg";
+import ConnectOrgDialog from "./ConnectOrgDialog";
 
 import styles from "./AddOrgButton.module.css";
 
 export default function AddOrgButton() {
-  const { connect, loading, error } = useConnectOrg();
+  const [open, setOpen] = useState(false);
 
   return (
     <div className={styles.wrap}>
@@ -14,17 +15,12 @@ export default function AddOrgButton() {
         variant="gradient"
         size="lg"
         leftIcon={<Plus size={16} />}
-        onClick={() => void connect()}
-        loading={loading}
+        onClick={() => setOpen(true)}
       >
-        {loading ? "Connecting..." : "Add Organization"}
+        Add Organization
       </Button>
 
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      {open && <ConnectOrgDialog onClose={() => setOpen(false)} />}
     </div>
   );
 }

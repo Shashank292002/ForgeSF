@@ -1,6 +1,44 @@
 import { describe, expect, it } from "vitest";
 
-import { buildRetrieveSpecs, memberSummary } from "./retrieveSpecs";
+import {
+  buildRetrieveSpecs,
+  memberSummary,
+  resolveRetrieveSpecs,
+} from "./retrieveSpecs";
+
+describe("resolveRetrieveSpecs", () => {
+  it("names every member of a type that has no wildcard", () => {
+    expect(
+      resolveRetrieveSpecs(
+        ["Report", "ApexClass"],
+        {},
+        {
+          Report: ["Sales", "Sales/Pipeline"],
+        },
+      ),
+    ).toEqual({
+      specs: ["Report:Sales", "Report:Sales/Pipeline", "ApexClass"],
+      empty: [],
+    });
+  });
+
+  it("prefers the user's picks over the full list", () => {
+    expect(
+      resolveRetrieveSpecs(
+        ["CustomField"],
+        { CustomField: ["Account.Tier__c"] },
+        { CustomField: ["Account.Tier__c", "Account.Region__c"] },
+      ).specs,
+    ).toEqual(["CustomField:Account.Tier__c"]);
+  });
+
+  it("reports a no-wildcard type with no members instead of sending it", () => {
+    expect(resolveRetrieveSpecs(["Dashboard"], {}, { Dashboard: [] })).toEqual({
+      specs: [],
+      empty: ["Dashboard"],
+    });
+  });
+});
 
 describe("buildRetrieveSpecs", () => {
   it("uses the bare type when no components are picked", () => {

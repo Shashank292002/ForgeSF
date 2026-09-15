@@ -26,3 +26,6 @@ tauri-plugin-log = "2"
 tauri-plugin-store = "2.4.4"
 tauri-plugin-dialog = "2"
 ts-rs = { version = "10.1.0", features = ["serde-compat"] }
+notify = "8"
+regex = "1"
+ignore = "0.4"

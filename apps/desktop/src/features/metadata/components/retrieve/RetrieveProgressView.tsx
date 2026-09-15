@@ -1,4 +1,4 @@
-import { Check, Loader2, X } from "lucide-react";
+import { Check, Loader2, Minus, X } from "lucide-react";
 
 import type { RetrieveProgressEntry } from "../../types";
 import { prettyMetadataKind } from "../../lib/categories";
@@ -11,7 +11,8 @@ interface Props {
 export default function RetrieveProgressView({ entries, total }: Props) {
   const completed = entries.filter((e) => e.status === "completed").length;
   const failed = entries.filter((e) => e.status === "failed").length;
-  const done = completed + failed;
+  const skipped = entries.filter((e) => e.status === "skipped").length;
+  const done = completed + failed + skipped;
   const percent = total > 0 ? Math.round((done / total) * 100) : 0;
   const totalRetrieved = entries.reduce(
     (sum, e) => sum + (e.status === "completed" ? e.retrieved : 0),
@@ -58,6 +59,7 @@ export default function RetrieveProgressView({ entries, total }: Props) {
               {entry.status === "running" && <Loader2 size={14} />}
               {entry.status === "completed" && <Check size={14} />}
               {entry.status === "failed" && <X size={14} />}
+              {entry.status === "skipped" && <Minus size={14} />}
             </span>
             <span className="mr-prog-row__name">
               {prettyMetadataKind(entry.kind)}
@@ -68,7 +70,11 @@ export default function RetrieveProgressView({ entries, total }: Props) {
               </span>
             ) : (
               <span className="mr-prog-row__msg">
-                {entry.status === "running" ? "Retrieving…" : "Failed"}
+                {entry.status === "running"
+                  ? "Retrieving…"
+                  : entry.status === "skipped"
+                    ? "Skipped"
+                    : "Failed"}
               </span>
             )}
           </div>

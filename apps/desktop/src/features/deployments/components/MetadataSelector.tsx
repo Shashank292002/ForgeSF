@@ -1,6 +1,13 @@
 import { useState, useMemo } from "react";
 import { Search, Check, Database, Layers, X } from "lucide-react";
 import type { MetadataType } from "../../metadata/types";
+import {
+  CATEGORY_ORDER,
+  categoriesForTypes,
+  categoryForType,
+  metadataCategoryInfo,
+  type MetadataCategoryKey,
+} from "../../metadata/lib/categories";
 import { cls } from "../../../lib/cls";
 import styles from "./MetadataSelector.module.css";
 
@@ -14,54 +21,13 @@ interface MetadataSelectorProps {
   onClear: () => void;
 }
 
-const CATEGORIES = [
-  { key: "all", label: "All Types", icon: Layers },
-  { key: "objects", label: "Objects", icon: Database },
-  { key: "code", label: "Code" },
-  { key: "ui", label: "UI" },
-  { key: "automation", label: "Automation" },
-];
-
-const CATEGORY_MAP: Record<string, string[]> = {
-  objects: [
-    "CustomObject",
-    "CustomField",
-    "CustomTab",
-    "BusinessProcess",
-    "RecordType",
-    "ValidationRule",
-    "SharingRule",
-    "PicklistValue",
-  ],
-  code: [
-    "ApexClass",
-    "ApexTrigger",
-    "ApexComponent",
-    "ApexPage",
-    "ApexTestSuite",
-    "LightningComponentBundle",
-    "StaticResource",
-  ],
-  ui: [
-    "FlexiPage",
-    "Layout",
-    "QuickAction",
-    "GlobalValueSet",
-    "HomePageComponent",
-    "Flow",
-    "ContentAsset",
-  ],
-  automation: [
-    "Flow",
-    "Workflow",
-    "ProcessBuilder",
-    "EmailTemplate",
-    "AutoResponseRules",
-    "AssignmentRules",
-    "EscalationRules",
-  ],
-};
-
+/**
+ * Picks whole metadata types to deploy.
+ *
+ * Categories come from the same rules as the retrieve wizard. This used to
+ * keep its own keyword list, matched by substring — "Flow" also caught
+ * "FlowDefinition", and one entry was a type that does not exist.
+ */
 export default function MetadataSelector({
   metadataTypes,
   selected,
@@ -71,25 +37,31 @@ export default function MetadataSelector({
   onToggle,
   onClear,
 }: MetadataSelectorProps) {
-  const [activeCategory, setActiveCategory] = useState("all");
+  const [activeCategory, setActiveCategory] = useState<
+    MetadataCategoryKey | "all"
+  >("all");
+
+  const counts = useMemo(
+    () => categoriesForTypes(metadataTypes),
+    [metadataTypes],
+  );
 
   const filtered = useMemo(() => {
     let list = metadataTypes;
     if (activeCategory !== "all") {
-      const keywords = CATEGORY_MAP[activeCategory] ?? [];
-      list = list.filter((m) =>
-        keywords.some((k) => m.xmlName.toLowerCase().includes(k.toLowerCase())),
+      list = list.filter(
+        (m) => categoryForType(m.xmlName).key === activeCategory,
       );
     }
     if (search.trim()) {
-      const q = search.toLowerCase();
+      const q = search.trim().toLowerCase();
       list = list.filter(
         (m) =>
           m.xmlName.toLowerCase().includes(q) ||
           m.directoryName.toLowerCase().includes(q),
       );
     }
-    return list;
+    return [...list].sort((a, b) => a.xmlName.localeCompare(b.xmlName));
   }, [metadataTypes, activeCategory, search]);
 
   return (
@@ -103,7 +75,7 @@ export default function MetadataSelector({
           )}
         </div>
         {selected.length > 0 && (
-          <button className={styles.clearBtn} onClick={onClear}>
+          <button type="button" className={styles.clearBtn} onClick={onClear}>
             <X size={14} />
             Clear
           </button>
@@ -116,33 +88,51 @@ export default function MetadataSelector({
         <input
           className={styles.searchInput}
           placeholder="Search metadata types..."
+          aria-label="Search metadata types"
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
         />
       </div>
 
-      {/* Category pills */}
+      {/* Category pills — only categories this org has types in */}
       <div className={styles.categories}>
-        {CATEGORIES.map((cat) => {
-          const Icon = cat.icon;
+        <button
+          type="button"
+          className={cls(
+            styles.categoryPill,
+            activeCategory === "all" && styles.categoryActive,
+          )}
+          aria-pressed={activeCategory === "all"}
+          onClick={() => setActiveCategory("all")}
+        >
+          <Layers size={12} />
+          All
+        </button>
+        {CATEGORY_ORDER.filter((key) => counts[key] > 0).map((key) => {
+          const info = metadataCategoryInfo(key);
+          const Icon = info.icon;
           return (
             <button
-              key={cat.key}
+              key={key}
+              type="button"
               className={cls(
                 styles.categoryPill,
-                activeCategory === cat.key && styles.categoryActive,
+                activeCategory === key && styles.categoryActive,
               )}
-              onClick={() => setActiveCategory(cat.key)}
+              aria-pressed={activeCategory === key}
+              title={info.description}
+              onClick={() => setActiveCategory(key)}
             >
-              {Icon && <Icon size={12} />}
-              {cat.label}
+              <Icon size={12} />
+              {info.label}
+              <span className={styles.pillCount}>{counts[key]}</span>
             </button>
           );
         })}
       </div>
 
       {/* List */}
-      <div className={styles.list}>
+      <div className={styles.list} role="listbox" aria-multiselectable="true">
         {loading && (
           <div className={styles.loading}>
             <div className={styles.spinner} />
@@ -159,8 +149,11 @@ export default function MetadataSelector({
           filtered.map((m) => {
             const isSelected = selected.includes(m.xmlName);
             return (
-              <div
+              <button
                 key={m.xmlName}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
                 className={cls(styles.item, isSelected && styles.itemSelected)}
                 onClick={() => onToggle(m.xmlName)}
               >
@@ -172,14 +165,14 @@ export default function MetadataSelector({
                 >
                   {isSelected && <Check size={12} />}
                 </span>
-                <div className={styles.itemInfo}>
+                <span className={styles.itemInfo}>
                   <span className={styles.itemName}>{m.xmlName}</span>
                   <span className={styles.itemDir}>{m.directoryName}</span>
-                </div>
+                </span>
                 {m.suffix && (
                   <span className={styles.itemSuffix}>.{m.suffix}</span>
                 )}
-              </div>
+              </button>
             );
           })}
       </div>

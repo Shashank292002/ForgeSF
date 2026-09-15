@@ -14,16 +14,43 @@ export interface RetrieveProgressEvent {
   index: number;
   total: number;
   kind: string | null;
-  status: "running" | "completed" | "failed" | "cancelled" | null;
+  /**
+   * Per type: `running` | `completed` | `failed`. On the final `complete`
+   * event: `complete` | `complete-with-errors` | `cancelled`.
+   */
+  status: string | null;
   retrieved: number;
   succeeded: number;
   failed: number;
   message: string | null;
 }
 
-// Connect Salesforce org
-export function connectSalesforce() {
-  return invoke<Organization>("connect_salesforce");
+/** Where and how to authenticate a new org. */
+export interface ConnectOptions {
+  /**
+   * Login host — `https://test.salesforce.com` for a sandbox, or a My Domain
+   * URL. Omitted for production's standard login page.
+   */
+  instanceUrl?: string | null;
+  alias?: string | null;
+  /** Make it the CLI's default org. */
+  setDefault?: boolean;
+}
+
+/**
+ * Authenticates an org through the browser. Pass a `runId` so the login can be
+ * abandoned with `cancelSfCommand`.
+ */
+export function connectSalesforce(
+  options: ConnectOptions = {},
+  runId?: string,
+) {
+  return invoke<Organization>("connect_salesforce", {
+    instanceUrl: options.instanceUrl || null,
+    alias: options.alias || null,
+    setDefault: options.setDefault ?? false,
+    runId: runId ?? null,
+  });
 }
 
 // Open org in browser
@@ -62,56 +89,50 @@ export function listMetadataComponents(metadataType: string, username: string) {
   });
 }
 
-export function readWorkspaceFile(path: string) {
-  return invoke<string>("read_workspace_file", { path });
-}
-
-export function writeWorkspaceFile(path: string, content: string) {
-  return invoke<string>("write_workspace_file", { path, content });
-}
-
-export interface DeployOutcome {
-  /** Present after a validation — feed it to `deployQuick` to promote it. */
-  jobId: string | null;
-  status: string;
-  summary: string;
-  checkOnly: boolean;
-}
-
 /**
- * Deploys the local workspace to `username`. `checkOnly` runs a server-side
- * validation whose job id can then be promoted via `deployQuick` instead of
- * re-uploading everything. `metadata` scopes the deploy to specific components
- * (`ApexClass:Foo`); omit it to deploy the whole package directory.
+ * Every org the Salesforce CLI is authenticated against.
+ *
+ * `skipConnectionStatus` returns in a fraction of the time — it skips pinging
+ * each org — but every status then reads "Connected"; follow it with a full
+ * call before trusting statuses.
  */
-export function deployWorkspace(
-  username: string,
-  checkOnly = false,
-  metadata?: string[],
-) {
-  return invoke<DeployOutcome>("deploy_workspace", {
-    username,
-    checkOnly,
-    metadata: metadata && metadata.length > 0 ? metadata : null,
+export function listOrgs(options: { skipConnectionStatus?: boolean } = {}) {
+  return invoke<Organization[]>("list_orgs", {
+    skipConnectionStatus: options.skipConnectionStatus ?? false,
   });
 }
 
-/** Promotes a previously validated deployment without re-running it. */
-export function deployQuick(username: string, jobId: string) {
-  return invoke<DeployOutcome>("deploy_quick", { username, jobId });
+/**
+ * Identifies one cancellable CLI run.
+ *
+ * Cancellation used to be a single global flag that every new command reset,
+ * so a Cancel pressed while the CLI was still starting was lost, and cancelling
+ * in Developer Tools also killed a terminal command running at the same time.
+ */
+export function newRunId(): string {
+  return crypto.randomUUID();
 }
 
-/** Every org the Salesforce CLI is authenticated against. */
-export function listOrgs() {
-  return invoke<Organization[]>("list_orgs");
+/**
+ * Runs a SOQL query. The query travels in a temp file (`--file`), so
+ * multi-line queries work on Windows, where `sf.cmd` cannot take arguments
+ * containing line breaks.
+ */
+export function runQuery(username: string, query: string, runId?: string) {
+  return invoke<string>("run_query", { username, query, runId: runId ?? null });
 }
 
-export function runQuery(username: string, query: string) {
-  return invoke<string>("run_query", { username, query });
+/** Runs a SOSL search — passed by file for the same reason as `runQuery`. */
+export function runSearch(username: string, query: string, runId?: string) {
+  return invoke<string>("run_search", {
+    username,
+    query,
+    runId: runId ?? null,
+  });
 }
 
-export function runCommand(args: string[], input?: string) {
-  return invoke<string>("run_command", { args, input });
+export function runCommand(args: string[], input?: string, runId?: string) {
+  return invoke<string>("run_command", { args, input, runId: runId ?? null });
 }
 
 /**
@@ -122,23 +143,31 @@ export function runCommand(args: string[], input?: string) {
  * exits 0 when Apex compiles and then throws, so exit-code checking alone
  * reports a failed run as a success.
  */
-export function runSfJson(args: string[], input?: string) {
-  return invoke<string>("run_sf_json", { args, input });
+export function runSfJson(args: string[], input?: string, runId?: string) {
+  return invoke<string>("run_sf_json", { args, input, runId: runId ?? null });
 }
 
-/** Asks an in-flight Developer Tools command to stop. */
-export function cancelSfCommand() {
-  return invoke<void>("cancel_sf_command");
+/**
+ * Stops the CLI run started with `runId`, killing its whole process tree.
+ * Safe to call before the run has started or after it has finished.
+ */
+export function cancelSfCommand(runId: string) {
+  return invoke<void>("cancel_sf_command", { runId });
 }
 
 /**
  * Retrieves the selected metadata from an org, streaming live progress events
  * so callers can render per-type progress. Resolves once all types complete.
  */
-export function retrieveMetadataProgress(username: string, metadata: string[]) {
+export function retrieveMetadataProgress(
+  username: string,
+  metadata: string[],
+  workspaceId?: string | null,
+) {
   return invoke<RetrieveResult>("retrieve_metadata_progress", {
     username,
     metadata,
+    workspaceId: workspaceId ?? null,
   });
 }
 

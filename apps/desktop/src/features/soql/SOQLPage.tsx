@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import {
   TerminalSquare,
@@ -17,14 +18,19 @@ import {
 import { useOrganizationStore } from "../../store/orgStore";
 import {
   runQuery,
+  runSearch,
   runCommand,
   runSfJson,
   cancelSfCommand,
+  newRunId,
 } from "../../services/tauri";
 import { Button, Badge } from "../../components/ui";
 import OrgGuard from "../../components/OrgGuard/OrgGuard";
 import RecordTable from "./RecordTable";
 import { tokenize } from "../workspace/lib/tokenize";
+import { protectionPrompt } from "../org-manager/lib/orgProtection";
+import { cliProtectionPrompt, stripCliName } from "../../lib/sfCli";
+import { confirm } from "../../components/ui/Confirm/confirm";
 
 import "./SOQLPage.css";
 
@@ -73,10 +79,21 @@ function tryParseRecords(output: string): Record<string, unknown>[] | null {
   return null;
 }
 
+function isTab(value: string | null): value is Tab {
+  return value !== null && value in TAB_LABELS;
+}
+
 export default function SOQLPage() {
   const org = useOrganizationStore((s) => s.selectedOrganization);
-  const [tab, setTab] = useState<Tab>("soql");
-  const [input, setInput] = useState<string>(SNIPPETS.soql[0]);
+  const organizations = useOrganizationStore((s) => s.organizations);
+  // `?tab=apex` opens a tab directly — the Dashboard's Anonymous Apex link
+  // lands here now that the separate Apex page is gone.
+  const [searchParams] = useSearchParams();
+  const initialTab = isTab(searchParams.get("tab"))
+    ? (searchParams.get("tab") as Tab)
+    : "soql";
+  const [tab, setTab] = useState<Tab>(initialTab);
+  const [input, setInput] = useState<string>(SNIPPETS[initialTab][0]);
   const [output, setOutput] = useState<string>("");
   const [running, setRunning] = useState(false);
   const [view, setView] = useState<View>("table");
@@ -111,6 +128,9 @@ export default function SOQLPage() {
   });
 
   const copyTimer = useRef<number | null>(null);
+  // The run Cancel should stop. Scoped per run so cancelling here can never
+  // stop a command started elsewhere (e.g. the workspace terminal).
+  const activeRunId = useRef<string | null>(null);
 
   /**
    * History for the active org only.
@@ -176,11 +196,14 @@ export default function SOQLPage() {
   }
 
   async function runWith(
-    fn: () => Promise<string>,
+    fn: (runId: string) => Promise<string>,
     historyTab: Tab,
     historyValue: string,
   ) {
     if (!org || running) return;
+
+    const runId = newRunId();
+    activeRunId.current = runId;
 
     setRunning(true);
     setCancelling(false);
@@ -191,67 +214,69 @@ export default function SOQLPage() {
     const started = performance.now();
 
     try {
-      const res = await fn();
+      const res = await fn(runId);
       setOutput(res);
       if (historyValue) pushHistory(historyTab, historyValue.trim());
     } catch (err: unknown) {
       setOutput(err instanceof Error ? err.message : String(err));
     } finally {
+      activeRunId.current = null;
       setRunning(false);
       setCancelling(false);
       setExecuteMs(Math.round(performance.now() - started));
     }
   }
-  const runForTab = (override: string, forTab: Tab = tab) => {
+  const runForTab = async (override: string, forTab: Tab = tab) => {
     if (forTab === "soql")
       void runWith(
-        async () => {
+        async (runId) => {
           if (!org) return "";
-          return runQuery(org.username, override.trim());
+          return runQuery(org.username, override.trim(), runId);
         },
         forTab,
         override,
       );
     else if (forTab === "sosl")
       void runWith(
-        async () => {
+        async (runId) => {
           if (!org) return "";
-          return runSfJson([
-            "data",
-            "search",
-            "--target-org",
-            org.username,
-            "--query",
-            override.trim(),
-            "--json",
-          ]);
+          return runSearch(org.username, override.trim(), runId);
         },
         forTab,
         override,
       );
-    else if (forTab === "apex")
+    else if (forTab === "apex") {
+      // Anonymous Apex can run DML. It went straight to Production, while
+      // deploys to the same org already asked first.
+      const prompt = protectionPrompt(org, "Run anonymous Apex", "Run Apex");
+      if (prompt && !(await confirm(prompt))) return;
       void runWith(
-        async () => {
+        async (runId) => {
           if (!org) return "";
           return runSfJson(
             ["apex", "execute", "--target-org", org.username, "--json"],
             override,
+            runId,
           );
         },
         forTab,
         override,
       );
-    else
+    } else {
+      // A leading `sf` is dropped, as in the workspace terminal; it used to
+      // run `sf sf …`.
+      const args = stripCliName(tokenize(override));
+      const prompt = cliProtectionPrompt(args, organizations);
+      if (prompt && !(await confirm(prompt))) return;
       void runWith(
-        async () => {
-          return runCommand(tokenize(override));
-        },
+        async (runId) => runCommand(args, undefined, runId),
         forTab,
         override,
       );
+    }
   };
 
-  const run = () => runForTab(input);
+  const run = () => void runForTab(input);
 
   // Each tab keeps its own buffer. Resetting `input` to the tab's first
   // snippet meant one misclick threw away whatever had been typed.
@@ -283,7 +308,7 @@ export default function SOQLPage() {
   function runFromHistory(item: HistoryEntry) {
     loadFromHistory(item);
     // Runs against the tab the entry was recorded from, not the active one.
-    runForTab(item.value, item.tab);
+    void runForTab(item.value, item.tab);
   }
 
   async function copyOutput() {
@@ -410,8 +435,10 @@ export default function SOQLPage() {
                           variant="secondary"
                           leftIcon={<X size={15} />}
                           onClick={() => {
+                            const runId = activeRunId.current;
+                            if (!runId) return;
                             setCancelling(true);
-                            void cancelSfCommand();
+                            void cancelSfCommand(runId);
                           }}
                           disabled={cancelling}
                         >

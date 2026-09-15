@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Check, FolderGit2, FolderPlus } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { useOrganizationStore } from "../../../store/orgStore";
+import { Menu, MenuItem, MenuSeparator } from "../../../components/ui";
 
 import "./WorkspaceSwitcher.css";
 
@@ -14,32 +15,16 @@ import "./WorkspaceSwitcher.css";
  */
 export default function WorkspaceSwitcher() {
   const workspaces = useWorkspaceStore((state) => state.workspaces);
-  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const activeWorkspaceId = useWorkspaceStore(
+    (state) => state.activeWorkspaceId,
+  );
   const workspaceName = useWorkspaceStore((state) => state.workspaceName);
   const switchWorkspace = useWorkspaceStore((state) => state.switchWorkspace);
   const addWorkspace = useWorkspaceStore((state) => state.addWorkspace);
   const organizations = useOrganizationStore((state) => state.organizations);
 
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      // Checking containment rather than closing on any mousedown: a bare
-      // listener swallows the click before the menu button ever receives it.
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("mousedown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("mousedown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   // Each folder belongs to an org; the label is what switching to it selects.
   const orgLabelFor = (orgId: string | null | undefined) => {
@@ -48,8 +33,9 @@ export default function WorkspaceSwitcher() {
   };
 
   return (
-    <div className="workspace-switcher" ref={rootRef}>
+    <div className="workspace-switcher">
       <button
+        ref={triggerRef}
         type="button"
         className="workspace-statusbar__item workspace-switcher__trigger"
         title="Switch workspace"
@@ -62,8 +48,14 @@ export default function WorkspaceSwitcher() {
       </button>
 
       {open && (
-        <div className="workspace-switcher__menu" role="menu">
-          <div className="workspace-switcher__heading">
+        <Menu
+          className="workspace-switcher__menu"
+          label="Workspaces"
+          anchorRef={triggerRef}
+          placement="above"
+          onClose={() => setOpen(false)}
+        >
+          <div className="workspace-switcher__heading" aria-hidden>
             Workspaces · one per org
           </div>
 
@@ -77,18 +69,14 @@ export default function WorkspaceSwitcher() {
               const org = orgLabelFor(workspace.orgId ?? workspace.lastOrgId);
 
               return (
-                <button
+                <MenuItem
                   key={workspace.id}
-                  type="button"
-                  role="menuitem"
                   className={`workspace-switcher__item ${
                     isActive ? "is-active" : ""
                   }`}
                   title={workspace.path}
-                  onClick={() => {
-                    setOpen(false);
-                    void switchWorkspace(workspace.id);
-                  }}
+                  aria-current={isActive ? "true" : undefined}
+                  onSelect={() => void switchWorkspace(workspace.id)}
                 >
                   <span className="workspace-switcher__check">
                     {isActive && <Check size={12} strokeWidth={3} />}
@@ -101,22 +89,19 @@ export default function WorkspaceSwitcher() {
                       {workspace.path}
                     </span>
                   </span>
-                  {org && <span className="workspace-switcher__org">{org}</span>}
-                </button>
+                  {org && (
+                    <span className="workspace-switcher__org">{org}</span>
+                  )}
+                </MenuItem>
               );
             })
           )}
 
-          <div className="workspace-switcher__sep" role="separator" />
+          <MenuSeparator className="workspace-switcher__sep" />
 
-          <button
-            type="button"
-            role="menuitem"
+          <MenuItem
             className="workspace-switcher__item workspace-switcher__add"
-            onClick={() => {
-              setOpen(false);
-              void addWorkspace();
-            }}
+            onSelect={() => void addWorkspace()}
           >
             <span className="workspace-switcher__check">
               <FolderPlus size={13} />
@@ -124,8 +109,8 @@ export default function WorkspaceSwitcher() {
             <span className="workspace-switcher__label">
               Use a different folder for this org…
             </span>
-          </button>
-        </div>
+          </MenuItem>
+        </Menu>
       )}
     </div>
   );

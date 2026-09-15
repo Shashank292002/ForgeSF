@@ -14,7 +14,6 @@
  * Nothing imports this at runtime; it exists purely for `tsc`.
  */
 import type {
-  DeployOutcome as RustDeployOutcome,
   DiffEntry as RustDiffEntry,
   DiffSession as RustDiffSession,
   MetadataType as RustMetadataType,
@@ -32,16 +31,15 @@ import type {
   Workspace,
   WorkspaceRegistry,
 } from "@/features/workspace/types";
-import type { DeployOutcome } from "@/services/tauri";
-
 /** Fails to compile unless `T` covers every member of `Shape`. */
 type Covers<T extends Shape, Shape> = T;
 
+// Deploy jobs, change tracking and CLI info use the generated types directly,
+// so they need no hand-written mirror here.
 export type IpcContractChecks = [
   Covers<Organization, RustOrganization>,
   Covers<MetadataType, RustMetadataType>,
   Covers<RetrieveResult, RustRetrieveResult>,
-  Covers<DeployOutcome, RustDeployOutcome>,
   Covers<DiffEntry, RustDiffEntry>,
   Covers<DiffSession, RustDiffSession>,
   Covers<Workspace, RustWorkspaceEntry>,

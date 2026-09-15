@@ -1,8 +1,11 @@
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
@@ -93,20 +96,202 @@ fn find_sf_executable() -> Result<String, String> {
 
 /// Suppresses the console window Windows pops for every `sf.cmd` spawn.
 #[cfg(windows)]
-fn hide_console(command: &mut Command) {
+pub(crate) fn hide_console(command: &mut Command) {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     command.creation_flags(CREATE_NO_WINDOW);
 }
 
 #[cfg(not(windows))]
-fn hide_console(_command: &mut Command) {}
+pub(crate) fn hide_console(_command: &mut Command) {}
+
+/// Working directory for `sf` calls that are not about a particular project.
+///
+/// Commands such as `org list metadata` or `data query` ran with no working
+/// directory set, so the CLI wrote its project-local cache (`.sf/orgs/…`) into
+/// wherever ForgeSF happened to be launched from — a stray `.sf/` folder in the
+/// repository was the visible symptom. Project commands still override this
+/// with the workspace.
+static NEUTRAL_CWD: OnceLock<PathBuf> = OnceLock::new();
+
+/// One-time setup that needs the app handle. Called from `run`'s setup hook.
+pub fn init(app: &tauri::AppHandle) {
+    if let Ok(dir) = app.path().app_data_dir() {
+        if fs::create_dir_all(&dir).is_ok() {
+            let _ = NEUTRAL_CWD.set(dir);
+        }
+    }
+}
+
+/// The installed Salesforce CLI, as far as ForgeSF can tell.
+#[derive(TS, Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct CliInfo {
+    pub found: bool,
+    /// e.g. `2.150.6`.
+    pub version: Option<String>,
+    /// Whether this version supports what ForgeSF relies on.
+    pub supported: bool,
+    /// What to do about it, when something is wrong.
+    pub message: Option<String>,
+}
+
+/// Oldest major version with the `sf project deploy …` commands (including
+/// `--async`, `report` and `cancel`) that deploy jobs use.
+const MIN_SF_MAJOR: u32 = 2;
+
+/// The version from `sf --version` output such as
+/// `@salesforce/cli/2.150.6 win32-x64 node-v24.19.0`.
+fn parse_cli_version(output: &str) -> Option<(String, u32)> {
+    let token = output
+        .split_whitespace()
+        .find(|token| token.starts_with("@salesforce/cli/"))?;
+    let version = token.trim_start_matches("@salesforce/cli/").to_string();
+    let major = version.split('.').next()?.parse().ok()?;
+    Some((version, major))
+}
+
+fn cli_info_from(output: Result<String, String>) -> CliInfo {
+    match output {
+        Err(message) => CliInfo {
+            found: false,
+            version: None,
+            supported: false,
+            message: Some(message),
+        },
+        Ok(text) => match parse_cli_version(&text) {
+            Some((version, major)) if major >= MIN_SF_MAJOR => CliInfo {
+                found: true,
+                version: Some(version),
+                supported: true,
+                message: None,
+            },
+            Some((version, _)) => CliInfo {
+                found: true,
+                message: Some(format!(
+                    "Salesforce CLI {version} is too old for ForgeSF. Update it with \
+                     `sf update` (or reinstall) to version {MIN_SF_MAJOR} or later."
+                )),
+                version: Some(version),
+                supported: false,
+            },
+            None => CliInfo {
+                found: true,
+                version: None,
+                supported: false,
+                message: Some(
+                    "The installed command is not the Salesforce CLI (`sf`) ForgeSF expects."
+                        .to_string(),
+                ),
+            },
+        },
+    }
+}
+
+/// Reports whether a usable Salesforce CLI is installed.
+#[tauri::command]
+pub async fn cli_info() -> Result<CliInfo, String> {
+    blocking(|| {
+        let output = run_sf(["--version"]).and_then(|output| output_to_string(&output));
+        Ok(cli_info_from(output))
+    })
+    .await
+}
 
 /// Builds a `Command` for the resolved `sf` executable.
-fn sf_command() -> Result<Command, String> {
+pub(crate) fn sf_command() -> Result<Command, String> {
     let mut command = Command::new(find_sf_executable()?);
     hide_console(&mut command);
+    if let Some(dir) = NEUTRAL_CWD.get() {
+        command.current_dir(dir);
+    }
     Ok(command)
+}
+
+/// Locks a mutex, recovering the data if a panicking thread poisoned it: every
+/// value guarded here stays valid even if an update was interrupted.
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// A uniquifier for temp-file names within this process.
+pub(crate) fn next_temp_suffix() -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "{}-{}-{}",
+        std::process::id(),
+        now_millis(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+/// Replaces a file's contents without ever leaving it half-written.
+///
+/// `fs::write` truncates first, so a crash mid-write left an empty or partial
+/// file, and a concurrent reader could see one too — which is how the
+/// workspace list could be read back as garbage. The new content is written
+/// beside the target and renamed over it; within one directory a rename
+/// replaces the file in a single step.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("'{}' has no parent directory.", path.display()))?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let temp = parent.join(format!(".{file_name}.{}.tmp", next_temp_suffix()));
+
+    let attempt = || -> std::io::Result<()> {
+        let mut file = fs::File::create(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        // Keep the original's permissions, e.g. an executable script's mode.
+        if let Ok(metadata) = fs::metadata(path) {
+            let _ = fs::set_permissions(&temp, metadata.permissions());
+        }
+        fs::rename(&temp, path)
+    };
+
+    match attempt() {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = fs::remove_file(&temp);
+            // On Windows another program holding the file open without delete
+            // sharing blocks the rename. An in-place write still beats failing
+            // the save outright.
+            if error.kind() == std::io::ErrorKind::PermissionDenied && path.is_file() {
+                return fs::write(path, bytes).map_err(|error| error.to_string());
+            }
+            Err(error.to_string())
+        }
+    }
+}
+
+/// A file in the OS temp directory, deleted when dropped.
+pub(crate) struct TempFile(PathBuf);
+
+impl TempFile {
+    pub(crate) fn create(extension: &str, contents: &str) -> Result<Self, String> {
+        let path = std::env::temp_dir().join(format!("forgesf-{}.{extension}", next_temp_suffix()));
+        fs::write(&path, contents)
+            .map_err(|error| format!("Could not stage a temporary file: {error}"))?;
+        Ok(Self(path))
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
 }
 
 fn run_sf<I, S>(args: I) -> Result<std::process::Output, String>
@@ -132,7 +317,7 @@ Off-thread execution
 /// browser OAuth round-trip in `connect_salesforce`); a plain `async` command
 /// would instead starve the shared async runtime. Both problems go away by
 /// moving the work to a pool where blocking is expected.
-async fn blocking<T, F>(task: F) -> Result<T, String>
+pub(crate) async fn blocking<T, F>(task: F) -> Result<T, String>
 where
     F: FnOnce() -> Result<T, String> + Send + 'static,
     T: Send + 'static,
@@ -147,7 +332,7 @@ where
 ───────────────────────────────────────────────────────────────── */
 
 /// Last resort when the CLI produced nothing machine-readable.
-fn sf_plain_error(output: &std::process::Output) -> String {
+pub(crate) fn sf_plain_error(output: &std::process::Output) -> String {
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     if !stderr.is_empty() {
         return stderr;
@@ -164,7 +349,7 @@ fn sf_plain_error(output: &std::process::Output) -> String {
 /// `sf --json` reports failures as `{ status, name, message, actions }`, and
 /// deploys/retrieves add per-component detail. All of that used to be dumped
 /// on the user as a raw `STDOUT:/STDERR:` blob.
-fn sf_error_message(json: &serde_json::Value, output: &std::process::Output) -> String {
+pub(crate) fn sf_error_message(json: &serde_json::Value, output: &std::process::Output) -> String {
     let mut parts: Vec<String> = Vec::new();
 
     if let Some(message) = json.get("message").and_then(serde_json::Value::as_str) {
@@ -210,7 +395,7 @@ fn sf_error_message(json: &serde_json::Value, output: &std::process::Output) -> 
 /// Exit status alone is not a reliable signal: some commands exit 0 while
 /// `result.status` is `"Failed"`, and the previous helper treated *unparseable*
 /// output as success — turning a broken CLI response into a silent false pass.
-fn parse_sf_json(output: &std::process::Output) -> Result<serde_json::Value, String> {
+pub(crate) fn parse_sf_json(output: &std::process::Output) -> Result<serde_json::Value, String> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -378,9 +563,24 @@ pub struct WorkspaceRegistry {
     pub active_id: Option<String>,
     #[serde(default)]
     pub workspaces: Vec<WorkspaceEntry>,
+    /// Set on a response when the saved list could not be read and a new one
+    /// was started. Never stored: `write_registry_file` strips it.
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub notice: Option<String>,
 }
 
 const WORKSPACE_SCHEMA_VERSION: u32 = 3;
+
+/// Serialises every read-modify-write of the registry file.
+///
+/// Commands run in parallel on the blocking pool, and at startup two of them
+/// update the registry at once. With no lock, one could read the file while
+/// another was rewriting it, or overwrite the other's change.
+static REGISTRY_LOCK: Mutex<()> = Mutex::new(());
+
+/// Why the saved registry had to be replaced, until `list_workspaces` reports it.
+static REGISTRY_NOTICE: Mutex<Option<String>> = Mutex::new(None);
 
 /// Canonicalises a path for use as a stable id, falling back to the input when
 /// the path does not exist yet.
@@ -437,85 +637,175 @@ fn org_workspaces_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 /// Milliseconds since the Unix epoch.
-fn now_millis() -> u64 {
+pub(crate) fn now_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis() as u64)
         .unwrap_or(0)
 }
 
-/// Reads the registry, upgrading the v1 single-path document on the way.
+fn empty_registry() -> WorkspaceRegistry {
+    WorkspaceRegistry {
+        version: WORKSPACE_SCHEMA_VERSION,
+        ..Default::default()
+    }
+}
+
+/// Moves an unreadable registry aside and starts a new one.
 ///
-/// v1 was `{ "workspacePath": "…" }` with no version marker; it becomes a single
-/// entry named after its folder, marked active.
-fn read_registry(app: &tauri::AppHandle) -> Result<WorkspaceRegistry, String> {
-    let config_path = workspace_config_path(app)?;
-    if !config_path.exists() {
-        return Ok(WorkspaceRegistry {
-            version: WORKSPACE_SCHEMA_VERSION,
-            ..Default::default()
-        });
+/// An unparseable file used to be read as an empty registry, which the next
+/// write then saved over the original — silently forgetting every registered
+/// workspace. The original is now kept as `workspace-config.json.corrupt-<ms>`,
+/// and if it cannot be moved nothing is overwritten.
+fn recover_unreadable_registry(path: &Path, reason: &str) -> Result<WorkspaceRegistry, String> {
+    let backup_name = format!(
+        "{}.corrupt-{}",
+        path.file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| WORKSPACE_CONFIG_FILE.to_string()),
+        now_millis()
+    );
+    let backup = path.with_file_name(backup_name);
+
+    if let Err(error) = fs::rename(path, &backup) {
+        return Err(format!(
+            "The saved workspace list could not be read because {reason}, and it \
+             could not be backed up ({error}). It has been left untouched at {}.",
+            path.display()
+        ));
     }
 
-    let raw = fs::read_to_string(&config_path).map_err(|error| error.to_string())?;
-    let json: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
+    let notice = format!(
+        "The saved workspace list could not be read because {reason}. It was kept \
+         as {} and a new list was started. No workspace folders were changed.",
+        backup.display()
+    );
+    eprintln!("ForgeSF: {notice}");
+    *lock(&REGISTRY_NOTICE) = Some(notice);
+    Ok(empty_registry())
+}
+
+/// Reads the registry file, upgrading older documents on the way.
+///
+/// v1 was `{ "workspacePath": "…" }` with no version marker; it becomes a single
+/// entry named after its folder, marked active. Callers must hold
+/// `REGISTRY_LOCK`.
+fn read_registry_file(path: &Path) -> Result<WorkspaceRegistry, String> {
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(empty_registry());
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+
+    let json: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(json) => json,
+        Err(error) => {
+            return recover_unreadable_registry(path, &format!("it is not valid JSON ({error})"))
+        }
+    };
+
+    let parse = |json: serde_json::Value| -> Result<WorkspaceRegistry, String> {
+        match serde_json::from_value::<WorkspaceRegistry>(json) {
+            Ok(registry) => Ok(registry),
+            Err(error) => {
+                recover_unreadable_registry(path, &format!("its entries are malformed ({error})"))
+            }
+        }
+    };
 
     match json.get("version").and_then(serde_json::Value::as_u64) {
-        Some(3) => return serde_json::from_value(json).map_err(|error| error.to_string()),
+        Some(version) if version == u64::from(WORKSPACE_SCHEMA_VERSION) => parse(json),
         Some(2) => {
             // v2 tracked only which org a folder was *last used with*. Under the
             // per-org model that association becomes ownership, so an existing
             // project stays bound to the org it was already being used with.
-            let mut registry: WorkspaceRegistry =
-                serde_json::from_value(json).map_err(|error| error.to_string())?;
+            let mut registry = parse(json)?;
             for entry in &mut registry.workspaces {
                 if entry.org_id.is_none() {
                     entry.org_id = entry.last_org_id.clone();
                 }
             }
             registry.version = WORKSPACE_SCHEMA_VERSION;
-            return Ok(registry);
+            Ok(registry)
         }
-        _ => {}
+        Some(version) if version > u64::from(WORKSPACE_SCHEMA_VERSION) => {
+            recover_unreadable_registry(
+                path,
+                &format!("it was written by a newer version of ForgeSF (schema {version})"),
+            )
+        }
+        _ => {
+            // v1: salvage the single path if there is one.
+            let mut registry = empty_registry();
+            if let Some(workspace) = json
+                .get(WORKSPACE_CONFIG_KEY)
+                .and_then(serde_json::Value::as_str)
+                .filter(|workspace| !workspace.is_empty())
+            {
+                let entry = entry_for(Path::new(workspace));
+                registry.active_id = Some(entry.id.clone());
+                registry.workspaces.push(entry);
+            }
+            Ok(registry)
+        }
     }
-
-    // v1 (or unrecognised): salvage the single path if there is one.
-    let mut registry = WorkspaceRegistry {
-        version: WORKSPACE_SCHEMA_VERSION,
-        ..Default::default()
-    };
-    if let Some(path) = json
-        .get(WORKSPACE_CONFIG_KEY)
-        .and_then(serde_json::Value::as_str)
-        .filter(|path| !path.is_empty())
-    {
-        let entry = entry_for(Path::new(path));
-        registry.active_id = Some(entry.id.clone());
-        registry.workspaces.push(entry);
-    }
-    Ok(registry)
 }
 
-fn write_registry(app: &tauri::AppHandle, registry: &WorkspaceRegistry) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(registry).map_err(|error| error.to_string())?;
-    fs::write(workspace_config_path(app)?, json).map_err(|error| error.to_string())
+/// Writes the registry atomically. Callers must hold `REGISTRY_LOCK`.
+fn write_registry_file(path: &Path, registry: &WorkspaceRegistry) -> Result<(), String> {
+    let mut value = serde_json::to_value(registry).map_err(|error| error.to_string())?;
+    // The notice is a one-off message for the UI, not part of the stored list.
+    if let Some(object) = value.as_object_mut() {
+        object.remove("notice");
+    }
+    let json = serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?;
+    write_atomic(path, json.as_bytes())
+}
+
+/// A consistent snapshot of the registry.
+pub(crate) fn read_registry(app: &tauri::AppHandle) -> Result<WorkspaceRegistry, String> {
+    let path = workspace_config_path(app)?;
+    let _guard = lock(&REGISTRY_LOCK);
+    read_registry_file(&path)
+}
+
+/// Runs one read-modify-write of the registry file under the lock.
+///
+/// `change` returns its result and whether it modified the registry; the file
+/// is only rewritten when it did.
+fn update_registry_at<T>(
+    path: &Path,
+    change: impl FnOnce(&mut WorkspaceRegistry) -> Result<(T, bool), String>,
+) -> Result<T, String> {
+    let _guard = lock(&REGISTRY_LOCK);
+    let mut registry = read_registry_file(path)?;
+    let (result, changed) = change(&mut registry)?;
+    if changed {
+        write_registry_file(path, &registry)?;
+    }
+    Ok(result)
+}
+
+fn update_registry<T>(
+    app: &tauri::AppHandle,
+    change: impl FnOnce(&mut WorkspaceRegistry) -> Result<(T, bool), String>,
+) -> Result<T, String> {
+    update_registry_at(&workspace_config_path(app)?, change)
 }
 
 /// The active entry's path, when it still exists on disk.
-fn read_configured_workspace(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
-    let registry = read_registry(app)?;
-    let Some(active_id) = registry.active_id else {
-        return Ok(None);
-    };
-
-    Ok(registry
+fn configured_workspace(registry: &WorkspaceRegistry) -> Option<PathBuf> {
+    let active_id = registry.active_id.as_ref()?;
+    registry
         .workspaces
-        .into_iter()
-        .find(|entry| entry.id == active_id)
-        .map(|entry| PathBuf::from(entry.path))
+        .iter()
+        .find(|entry| &entry.id == active_id)
+        .map(|entry| PathBuf::from(&entry.path))
         // A folder deleted or moved underneath us falls through to the next
         // resolution step rather than failing every workspace command.
-        .filter(|path| path.exists() && path.is_dir()))
+        .filter(|path| path.exists() && path.is_dir())
 }
 
 /// The dev workspace, anchored to the crate directory at compile time.
@@ -548,7 +838,54 @@ fn dev_workspace() -> Option<PathBuf> {
 ///   2. In debug builds only, the dev workspace at `apps/desktop/workspace`.
 ///   3. A fresh project skeleton created under the app data directory.
 fn get_workspace(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    if let Some(configured) = read_configured_workspace(app)? {
+    let registry = read_registry(app)?;
+    resolve_workspace(app, &registry)
+}
+
+/// The folder a request should act on: the workspace with `workspace_id`, or
+/// the active one when no id is given.
+///
+/// The UI passes the id of the workspace it is *showing*. Every command used
+/// to resolve the global active workspace at the moment it ran, so a read,
+/// save or deploy issued just before an org switch landed in the next org's
+/// folder — and per-org trees share paths such as
+/// `force-app/main/default/classes/Foo.cls`, so the wrong org's file could be
+/// shown, overwritten or deployed.
+pub(crate) fn workspace_root(
+    app: &tauri::AppHandle,
+    workspace_id: Option<&str>,
+) -> Result<PathBuf, String> {
+    let registry = read_registry(app)?;
+    match workspace_id.filter(|id| !id.is_empty()) {
+        Some(id) => registered_workspace_path(&registry, id),
+        None => resolve_workspace(app, &registry),
+    }
+}
+
+/// A registered workspace's folder, which must still exist.
+fn registered_workspace_path(registry: &WorkspaceRegistry, id: &str) -> Result<PathBuf, String> {
+    let entry = registry
+        .workspaces
+        .iter()
+        .find(|entry| entry.id == id)
+        .ok_or_else(|| "That workspace is no longer registered.".to_string())?;
+    let path = PathBuf::from(&entry.path);
+    if !path.is_dir() {
+        return Err(format!(
+            "The workspace folder '{}' no longer exists.",
+            entry.path
+        ));
+    }
+    Ok(path)
+}
+
+/// `get_workspace` against a registry the caller already holds — needed inside
+/// `update_registry`, where reading it again would deadlock on the lock.
+fn resolve_workspace(
+    app: &tauri::AppHandle,
+    registry: &WorkspaceRegistry,
+) -> Result<PathBuf, String> {
+    if let Some(configured) = configured_workspace(registry) {
         return Ok(configured);
     }
 
@@ -594,7 +931,7 @@ fn ensure_sfdx_project(root: &Path) -> Result<(), String> {
 
 /// Joins a relative path with the workspace root, rejecting any attempt to
 /// escape the workspace directory (absolute paths, `..`, drive prefixes).
-fn resolve_in_workspace(root: &Path, relative: &str) -> Result<PathBuf, String> {
+pub(crate) fn resolve_in_workspace(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let relative_path = Path::new(relative);
     if relative_path.is_absolute() {
         return Err(format!(
@@ -628,7 +965,7 @@ fn resolve_in_workspace(root: &Path, relative: &str) -> Result<PathBuf, String> 
 }
 
 /// Returns true when a path should be hidden from the workspace explorer.
-fn is_ignored_path(path: &Path) -> bool {
+pub(crate) fn is_ignored_path(path: &Path) -> bool {
     path.components().any(|component| {
         if let Component::Normal(name) = component {
             let name = name.to_string_lossy();
@@ -640,7 +977,7 @@ fn is_ignored_path(path: &Path) -> bool {
 }
 
 /// Returns a path relative to the workspace root using `/` separators.
-fn to_relative_string(root: &Path, path: &Path) -> String {
+pub(crate) fn to_relative_string(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
         .to_string_lossy()
@@ -656,9 +993,11 @@ fn has_visible_entries(path: &Path) -> bool {
     let Ok(entries) = fs::read_dir(path) else {
         return false;
     };
+    // By name only: checking the full path hid every entry of a workspace
+    // that itself sits under a folder such as `.sf` or `node_modules`.
     entries
         .flatten()
-        .any(|entry| !is_ignored_path(&entry.path()))
+        .any(|entry| !is_ignored_path(Path::new(&entry.file_name())))
 }
 
 /// Reads a directory `depth` levels deep.
@@ -674,7 +1013,7 @@ fn read_directory(root: &Path, path: &Path, depth: usize) -> Result<Vec<FileNode
         let entry = entry.map_err(|error| error.to_string())?;
         let entry_path = entry.path();
 
-        if is_ignored_path(&entry_path) {
+        if is_ignored_path(Path::new(&entry.file_name())) {
             continue;
         }
 
@@ -825,8 +1164,16 @@ fn organization_from_json(value: &serde_json::Value) -> Result<Organization, Str
 }
 
 /// Every org the Salesforce CLI knows about, de-duplicated across its buckets.
-fn collect_orgs() -> Result<Vec<Organization>, String> {
-    let output = run_sf(["org", "list", "--json"])?;
+///
+/// `skip_connection_status` avoids the per-org network round-trip that makes
+/// `sf org list` slow; statuses then read as connected and must come from a
+/// later full refresh.
+fn collect_orgs(skip_connection_status: bool) -> Result<Vec<Organization>, String> {
+    let mut args = vec!["org", "list", "--json"];
+    if skip_connection_status {
+        args.push("--skip-connection-status");
+    }
+    let output = run_sf(args)?;
     let json = parse_sf_json(&output)?;
     let result = &json["result"];
 
@@ -871,14 +1218,123 @@ fn collect_orgs() -> Result<Vec<Organization>, String> {
 /// user pressed "Add Organization", so orgs already authenticated in the CLI
 /// were invisible, and orgs logged out via the CLI lingered as phantoms.
 #[tauri::command]
-pub async fn list_orgs() -> Result<Vec<Organization>, String> {
-    blocking(collect_orgs).await
+pub async fn list_orgs(skip_connection_status: Option<bool>) -> Result<Vec<Organization>, String> {
+    blocking(move || collect_orgs(skip_connection_status.unwrap_or(false))).await
 }
 
+/// Normalises a login URL: `https` only, with a plain host (and optional port
+/// and path). A bare host such as `acme.my.salesforce.com` gets `https://`.
+fn login_instance_url(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err("Enter the org's login URL.".to_string());
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("http://") {
+        return Err("The login URL must use https://.".to_string());
+    }
+    let rest = if lower.starts_with("https://") {
+        &trimmed["https://".len()..]
+    } else {
+        trimmed
+    };
+
+    let (authority, path) = match rest.split_once('/') {
+        Some((authority, path)) => (authority, Some(path)),
+        None => (rest, None),
+    };
+    let (host, port) = match authority.split_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (authority, None),
+    };
+
+    let host_ok = !host.is_empty()
+        && host.contains('.')
+        && host
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-'));
+    let port_ok = port.map_or(true, |port| {
+        !port.is_empty() && port.chars().all(|c| c.is_ascii_digit())
+    });
+    let path_ok = path.map_or(true, |path| {
+        path.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '~' | '/'))
+    });
+
+    if !(host_ok && port_ok && path_ok) {
+        return Err(format!("'{}' is not a valid login URL.", raw.trim()));
+    }
+    Ok(format!("https://{rest}"))
+}
+
+/// Validates an org alias. The CLI accepts little beyond these characters, and
+/// keeping it to them means it can never be misread as another argument.
+fn login_alias(raw: &str) -> Result<String, String> {
+    let alias = raw.trim();
+    let valid = !alias.is_empty()
+        && alias.len() <= 80
+        && !alias.starts_with('-')
+        && alias
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '@'));
+    if valid {
+        Ok(alias.to_string())
+    } else {
+        Err("An alias may use letters, digits, and _ - . @ only.".to_string())
+    }
+}
+
+/// `sf org login web` arguments for the chosen options.
+fn login_args(
+    instance_url: Option<&str>,
+    alias: Option<&str>,
+    set_default: bool,
+) -> Result<Vec<String>, String> {
+    let mut args: Vec<String> = ["org", "login", "web", "--json"]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    if let Some(url) = instance_url.filter(|url| !url.trim().is_empty()) {
+        args.push("--instance-url".to_string());
+        args.push(login_instance_url(url)?);
+    }
+    if let Some(alias) = alias.filter(|alias| !alias.trim().is_empty()) {
+        args.push("--alias".to_string());
+        args.push(login_alias(alias)?);
+    }
+    if set_default {
+        args.push("--set-default".to_string());
+    }
+    Ok(args)
+}
+
+/// How long a browser login may take before the waiting CLI is stopped.
+const LOGIN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
+/// Authenticates an org through the browser.
+///
+/// `instance_url` selects a sandbox (`https://test.salesforce.com`) or a My
+/// Domain; previously every login went to production's login page, so
+/// sandboxes could not be connected at all. The login is a cancellable run: an
+/// abandoned browser tab used to leave the button spinning until restart.
 #[tauri::command]
-pub async fn connect_salesforce() -> Result<Organization, String> {
-    blocking(|| {
-        let login = run_sf(["org", "login", "web", "--json"])?;
+pub async fn connect_salesforce(
+    instance_url: Option<String>,
+    alias: Option<String>,
+    set_default: Option<bool>,
+    run_id: Option<String>,
+) -> Result<Organization, String> {
+    blocking(move || {
+        let run = RunGuard::begin(run_id);
+        let args = login_args(
+            instance_url.as_deref(),
+            alias.as_deref(),
+            set_default.unwrap_or(false),
+        )?;
+
+        let mut command = sf_command()?;
+        command.args(&args);
+        let login = run_with_limits(command, None, &run.cancelled, LOGIN_TIMEOUT)?;
         let json = parse_sf_json(&login)?;
 
         let username = json
@@ -891,7 +1347,7 @@ pub async fn connect_salesforce() -> Result<Organization, String> {
         // The login payload carries no isSandbox/isScratch/default flags, so
         // re-read the org from `org list`, which does. Falling back to the
         // login payload keeps the connection usable if that second call fails.
-        if let Ok(orgs) = collect_orgs() {
+        if let Ok(orgs) = collect_orgs(false) {
             if let Some(org) = orgs.into_iter().find(|org| org.username == username) {
                 return Ok(org);
             }
@@ -915,7 +1371,9 @@ pub async fn open_org(username: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn set_default_org(username: String) -> Result<String, String> {
     blocking(move || {
-        let output = run_sf(["config", "set", "target-org", &username])?;
+        // `--global`: without it the CLI writes project-local config into its
+        // working directory, which is not a project the user chose.
+        let output = run_sf(["config", "set", "target-org", &username, "--global"])?;
         output_to_string(&output)
     })
     .await
@@ -971,34 +1429,93 @@ pub async fn list_metadata_types(username: String) -> Result<Vec<MetadataType>, 
     .await
 }
 
+/// The folder metadata type that organises an in-folder type, if it is one.
+fn folder_type_for(metadata_type: &str) -> Option<&'static str> {
+    match metadata_type {
+        "Report" => Some("ReportFolder"),
+        "Dashboard" => Some("DashboardFolder"),
+        "Document" => Some("DocumentFolder"),
+        "EmailTemplate" => Some("EmailFolder"),
+        _ => None,
+    }
+}
+
+/// Folders that exist without being listed as folder metadata.
+fn implicit_folders_for(metadata_type: &str) -> &'static [&'static str] {
+    match metadata_type {
+        "Report" | "EmailTemplate" => &["unfiled$public"],
+        _ => &[],
+    }
+}
+
+/// `fullName`s from one `sf org list metadata` call.
+fn list_members(
+    metadata_type: &str,
+    username: &str,
+    folder: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let mut args = vec![
+        "org",
+        "list",
+        "metadata",
+        "--metadata-type",
+        metadata_type,
+        "--target-org",
+        username,
+        "--json",
+    ];
+    if let Some(folder) = folder {
+        args.push("--folder");
+        args.push(folder);
+    }
+    let output = run_sf(args)?;
+    let json = parse_sf_json(&output)?;
+
+    // A type with no components is an empty list, not an error: the CLI
+    // returns a null result (or a single object for one component).
+    let members = match &json["result"] {
+        serde_json::Value::Array(items) => items.iter().collect::<Vec<_>>(),
+        object @ serde_json::Value::Object(_) => vec![object],
+        _ => Vec::new(),
+    };
+    Ok(members
+        .iter()
+        .filter_map(|member| member["fullName"].as_str().map(str::to_string))
+        .collect())
+}
+
+/// Lists the components of a metadata type.
+///
+/// Reports, dashboards, documents and email templates live in folders, and the
+/// Metadata API only lists them one folder at a time — the picker used to show
+/// "no components" for all of them. Their folders are listed first, then each
+/// folder's contents; the folders themselves are returned too, as they are
+/// retrievable members of the same type.
 #[tauri::command]
 pub async fn list_metadata_components(
     metadata_type: String,
     username: String,
 ) -> Result<Vec<String>, String> {
     blocking(move || {
-        let output = run_sf([
-            "org",
-            "list",
-            "metadata",
-            "--metadata-type",
-            &metadata_type,
-            "--target-org",
-            &username,
-            "--json",
-        ])?;
-        let json = parse_sf_json(&output)?;
-
-        // A type with no components is an empty list, not an error: the CLI
-        // returns a null result for types the org has none of.
-        let Some(members) = json["result"].as_array() else {
-            return Ok(Vec::new());
+        let Some(folder_type) = folder_type_for(&metadata_type) else {
+            return list_members(&metadata_type, &username, None);
         };
 
-        Ok(members
-            .iter()
-            .filter_map(|member| member["fullName"].as_str().map(|name| name.to_string()))
-            .collect())
+        let mut folders = list_members(folder_type, &username, None)?;
+        for implicit in implicit_folders_for(&metadata_type) {
+            if !folders.iter().any(|folder| folder == implicit) {
+                folders.push((*implicit).to_string());
+            }
+        }
+
+        let mut members: BTreeSet<String> = BTreeSet::new();
+        for folder in &folders {
+            if !implicit_folders_for(&metadata_type).contains(&folder.as_str()) {
+                members.insert(folder.clone());
+            }
+            members.extend(list_members(&metadata_type, &username, Some(folder))?);
+        }
+        Ok(members.into_iter().collect())
     })
     .await
 }
@@ -1043,9 +1560,14 @@ fn summarize_sf_json(stdout: &[u8]) -> String {
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct RetrieveResultItem {
     pub kind: String,
-    pub status: String, // "completed" | "failed"
+    pub status: String, // "completed" | "failed" | "skipped"
     pub retrieved: u32,
     pub message: Option<String>,
+    /// Problems the CLI reported without failing the retrieve, such as a
+    /// component that does not exist in the org. They used to be dropped, so
+    /// a type could read "completed, 0 items" with no explanation.
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 /// Aggregated outcome of a retrieve run (with per-type detail).
@@ -1059,6 +1581,9 @@ pub struct RetrieveResult {
     pub total: u32,
     pub succeeded: u32,
     pub failed: u32,
+    /// True when the run was stopped early; unprocessed types are `skipped`.
+    #[serde(default)]
+    pub cancelled: bool,
 }
 
 /// Real-time payload pushed to the frontend while a retrieve is in flight.
@@ -1100,11 +1625,159 @@ fn files_by_type(stdout: &[u8]) -> std::collections::HashMap<String, u32> {
     };
 
     for file in files {
+        // A file the CLI could not write is a warning (see `retrieve_warnings`),
+        // not something retrieved.
+        let failed = file
+            .get("state")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|state| state.eq_ignore_ascii_case("failed"));
+        if failed {
+            continue;
+        }
         if let Some(kind) = file.get("type").and_then(serde_json::Value::as_str) {
             *counts.entry(kind.to_string()).or_insert(0) += 1;
         }
     }
     counts
+}
+
+/// The metadata type named in a Metadata API problem such as
+/// "Entity of type 'ApexClass' named 'Foo' cannot be found".
+fn type_named_in_problem(problem: &str) -> Option<&str> {
+    let start = problem.find("type '")? + "type '".len();
+    let length = problem[start..].find('\'')?;
+    Some(&problem[start..start + length]).filter(|kind| !kind.is_empty())
+}
+
+/// Non-fatal problems from a retrieve, grouped by metadata type.
+///
+/// `sf project retrieve start --json` succeeds even when requested components
+/// are missing; the detail is in `result.messages` (one object or an array)
+/// and in `result.files` entries whose `state` is `Failed`. Problems that do
+/// not name a type are grouped under the empty string.
+fn retrieve_warnings(stdout: &[u8]) -> HashMap<String, Vec<String>> {
+    let mut warnings: HashMap<String, Vec<String>> = HashMap::new();
+    let Ok(json) = serde_json::from_slice::<serde_json::Value>(stdout) else {
+        return warnings;
+    };
+    let result = &json["result"];
+
+    fn add(warnings: &mut HashMap<String, Vec<String>>, kind: &str, text: &str) {
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+        let bucket = warnings.entry(kind.to_string()).or_default();
+        if !bucket.iter().any(|existing| existing == text) {
+            bucket.push(text.to_string());
+        }
+    }
+
+    let messages: Vec<&serde_json::Value> = match &result["messages"] {
+        serde_json::Value::Array(items) => items.iter().collect(),
+        object @ serde_json::Value::Object(_) => vec![object],
+        _ => Vec::new(),
+    };
+    for message in messages {
+        if let Some(problem) = message.get("problem").and_then(serde_json::Value::as_str) {
+            add(
+                &mut warnings,
+                type_named_in_problem(problem).unwrap_or_default(),
+                problem,
+            );
+        }
+    }
+
+    if let Some(files) = result["files"].as_array() {
+        for file in files {
+            let failed = file
+                .get("state")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|state| state.eq_ignore_ascii_case("failed"));
+            if !failed {
+                continue;
+            }
+            let kind = file
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            let name = file
+                .get("fullName")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            let problem = file
+                .get("error")
+                .or_else(|| file.get("problem"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("could not be retrieved");
+            // A missing component is reported twice — once in `messages`,
+            // once as a failed file — and was listed twice.
+            let reported = warnings
+                .get(kind)
+                .is_some_and(|bucket| bucket.iter().any(|existing| existing == problem.trim()));
+            if reported {
+                continue;
+            }
+            if name.is_empty() {
+                add(&mut warnings, kind, problem);
+            } else {
+                add(&mut warnings, kind, &format!("{name}: {problem}"));
+            }
+        }
+    }
+
+    warnings
+}
+
+/// Workspace-relative paths of the files a retrieve or deploy wrote, from its
+/// `result.files`. Failed entries are skipped.
+pub(crate) fn written_files(stdout: &[u8], root: &Path) -> Vec<String> {
+    let Ok(json) = serde_json::from_slice::<serde_json::Value>(stdout) else {
+        return Vec::new();
+    };
+    let Some(files) = json["result"]["files"].as_array() else {
+        return Vec::new();
+    };
+    files
+        .iter()
+        .filter(|file| {
+            !file
+                .get("state")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|state| state.eq_ignore_ascii_case("failed"))
+        })
+        .filter_map(|file| file.get("filePath").and_then(serde_json::Value::as_str))
+        .map(|path| {
+            let path = Path::new(path);
+            if path.is_absolute() {
+                to_relative_string(root, path)
+            } else {
+                path.to_string_lossy().replace('\\', "/")
+            }
+        })
+        .collect()
+}
+
+/// What one `sf project retrieve start` call produced.
+struct RetrieveBatchOutcome {
+    counts: HashMap<String, u32>,
+    warnings: HashMap<String, Vec<String>>,
+    /// Workspace-relative files written, for change tracking.
+    files: Vec<String>,
+}
+
+impl RetrieveBatchOutcome {
+    /// Warnings for `kind`. Problems that name no type are only attributed
+    /// when the call retrieved that type alone, where the source is certain.
+    fn warnings_for(&self, kind: &str, only_kind_in_call: bool) -> Vec<String> {
+        let mut found = self.warnings.get(kind).cloned().unwrap_or_default();
+        if only_kind_in_call {
+            if let Some(unattributed) = self.warnings.get("") {
+                found.extend(unattributed.iter().cloned());
+            }
+        }
+        found
+    }
 }
 
 /// Set by `cancel_retrieve`, checked between batches.
@@ -1115,10 +1788,22 @@ fn files_by_type(stdout: &[u8]) -> std::collections::HashMap<String, u32> {
 static RETRIEVE_CANCELLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+/// The run id of the retrieve batch in flight, so Cancel can stop it too.
+static RETRIEVE_RUN: Mutex<Option<String>> = Mutex::new(None);
+
+/// How long one retrieve batch may run.
+const RETRIEVE_TIMEOUT: Duration = Duration::from_secs(25 * 60);
+
 /// Requests cancellation of an in-flight retrieve.
+///
+/// Stops the batch in flight as well: cancelling used to only take effect
+/// between batches, so a large batch still ran to completion first.
 #[tauri::command]
 pub fn cancel_retrieve() {
     RETRIEVE_CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    if let Some(run_id) = lock(&RETRIEVE_RUN).clone() {
+        cancel_sf_command(run_id);
+    }
 }
 
 /// Metadata types retrieved per `sf` invocation.
@@ -1129,13 +1814,79 @@ pub fn cancel_retrieve() {
 /// magnitude; a failed batch is retried type-by-type to isolate the culprit.
 const RETRIEVE_BATCH_SIZE: usize = 10;
 
+/// Above this many characters of `--metadata` arguments, a retrieve's selection
+/// goes into a `package.xml` instead.
+///
+/// Windows runs `sf.cmd` through cmd.exe, which rejects command lines longer
+/// than 8191 characters, so picking a few hundred components of one type
+/// failed outright. The margin leaves room for the rest of the command line.
+pub(crate) const MAX_INLINE_METADATA_CHARS: usize = 2000;
+
+fn xml_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+/// Builds a `package.xml` from CLI member specs (`ApexClass`, `ApexClass:Foo`).
+/// A bare type means every member (`*`).
+pub(crate) fn package_xml(specs: &[String], api_version: Option<&str>) -> String {
+    let mut types: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for spec in specs {
+        let spec = spec.trim();
+        if spec.is_empty() {
+            continue;
+        }
+        let (kind, member) = match spec.split_once(':') {
+            Some((kind, member)) if !member.trim().is_empty() => (kind.trim(), member.trim()),
+            Some((kind, _)) => (kind.trim(), "*"),
+            None => (spec, "*"),
+        };
+        types.entry(kind).or_default().insert(member);
+    }
+
+    let mut xml = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <Package xmlns=\"http://soap.sforce.com/2006/04/metadata\">\n",
+    );
+    for (kind, members) in &types {
+        xml.push_str("    <types>\n");
+        for member in members {
+            xml.push_str(&format!(
+                "        <members>{}</members>\n",
+                xml_escape(member)
+            ));
+        }
+        xml.push_str(&format!("        <name>{}</name>\n", xml_escape(kind)));
+        xml.push_str("    </types>\n");
+    }
+    if let Some(version) = api_version {
+        xml.push_str(&format!("    <version>{}</version>\n", xml_escape(version)));
+    }
+    xml.push_str("</Package>\n");
+    xml
+}
+
+/// `sourceApiVersion` from the project manifest, when set.
+pub(crate) fn source_api_version(workspace: &Path) -> Option<String> {
+    let raw = fs::read_to_string(workspace.join("sfdx-project.json")).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    json.get("sourceApiVersion")
+        .and_then(serde_json::Value::as_str)
+        .filter(|version| !version.trim().is_empty())
+        .map(str::to_string)
+}
+
 /// Retrieves any number of members in a single `sf` invocation and reports how
 /// many files were written per metadata type.
 fn retrieve_members(
     workspace: &Path,
     username: &str,
     members: &[String],
-) -> Result<std::collections::HashMap<String, u32>, String> {
+    cancelled: &AtomicBool,
+) -> Result<RetrieveBatchOutcome, String> {
     let mut command = sf_command()?;
     command.args([
         "project",
@@ -1147,15 +1898,35 @@ fn retrieve_members(
         "--wait",
         "20",
     ]);
-    for member in members {
-        command.arg("--metadata");
-        command.arg(member);
-    }
+
+    let inline_chars: usize = members
+        .iter()
+        .map(|member| member.len() + " --metadata \"\"".len())
+        .sum();
+
+    // Kept alive until the CLI has run; the file is deleted on drop.
+    let _manifest = if inline_chars > MAX_INLINE_METADATA_CHARS {
+        let xml = package_xml(members, source_api_version(workspace).as_deref());
+        let file = TempFile::create("xml", &xml)?;
+        command.arg("--manifest");
+        command.arg(file.path());
+        Some(file)
+    } else {
+        for member in members {
+            command.arg("--metadata");
+            command.arg(member);
+        }
+        None
+    };
     command.current_dir(workspace);
 
-    let output = command.output().map_err(|error| error.to_string())?;
+    let output = run_with_limits(command, None, cancelled, RETRIEVE_TIMEOUT)?;
     parse_sf_json(&output)?;
-    Ok(files_by_type(&output.stdout))
+    Ok(RetrieveBatchOutcome {
+        counts: files_by_type(&output.stdout),
+        warnings: retrieve_warnings(&output.stdout),
+        files: written_files(&output.stdout, workspace),
+    })
 }
 
 /// Retrieves the requested metadata from an org, streaming live progress
@@ -1167,19 +1938,21 @@ pub async fn retrieve_metadata_progress(
     app: tauri::AppHandle,
     username: String,
     metadata: Vec<String>,
+    workspace_id: Option<String>,
 ) -> Result<RetrieveResult, String> {
     // The loop below runs one `sf` process per metadata type, each waiting up
     // to 20 minutes. Doing that inline in an async command starved Tauri's
     // shared async runtime for the whole retrieval.
-    blocking(move || retrieve_metadata_blocking(app, username, metadata)).await
+    blocking(move || retrieve_metadata_blocking(app, username, metadata, workspace_id)).await
 }
 
 fn retrieve_metadata_blocking(
     app: tauri::AppHandle,
     username: String,
     metadata: Vec<String>,
+    workspace_id: Option<String>,
 ) -> Result<RetrieveResult, String> {
-    let workspace = get_workspace(&app)?;
+    let workspace = workspace_root(&app, workspace_id.as_deref())?;
 
     // Group members by metadata type so each type becomes an isolated,
     // observable unit of progress.
@@ -1220,20 +1993,36 @@ fn retrieve_metadata_blocking(
     RETRIEVE_CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
     let cancelled = || RETRIEVE_CANCELLED.load(std::sync::atomic::Ordering::SeqCst);
 
+    // One cancellable run for the whole retrieve: Cancel kills the batch in
+    // flight through it, and the flag above stops the next one starting.
+    let run = RunGuard::begin(Some(format!("retrieve-{}", next_temp_suffix())));
+    *lock(&RETRIEVE_RUN) = Some(run.id.clone());
+    struct ClearRun;
+    impl Drop for ClearRun {
+        fn drop(&mut self) {
+            *lock(&RETRIEVE_RUN) = None;
+        }
+    }
+    let _clear_run = ClearRun;
+
+    // Files written by every batch, so they can leave "pending changes".
+    let mut synced_files: Vec<String> = Vec::new();
+
     let record = |kind: &str,
-                  outcome: Result<u32, String>,
+                  outcome: Result<(u32, Vec<String>), String>,
                   succeeded: &mut u32,
                   failed: &mut u32,
                   items: &mut Vec<RetrieveResultItem>|
      -> Result<(), String> {
         match outcome {
-            Ok(retrieved) => {
+            Ok((retrieved, warnings)) => {
                 *succeeded += 1;
                 items.push(RetrieveResultItem {
                     kind: kind.to_string(),
                     status: "completed".to_string(),
                     message: Some(format!("{retrieved} item(s) retrieved")),
                     retrieved,
+                    warnings,
                 });
                 emit(&RetrieveProgressEvent {
                     phase: "item".to_string(),
@@ -1254,6 +2043,7 @@ fn retrieve_metadata_blocking(
                     status: "failed".to_string(),
                     retrieved: 0,
                     message: Some(error.clone()),
+                    warnings: Vec::new(),
                 });
                 emit(&RetrieveProgressEvent {
                     phase: "item".to_string(),
@@ -1304,12 +2094,21 @@ fn retrieve_metadata_blocking(
             .flat_map(|&position| groups[position].clone())
             .collect();
 
-        match retrieve_members(&workspace, &username, &members) {
-            Ok(counts) => {
+        match retrieve_members(&workspace, &username, &members, &run.cancelled) {
+            Ok(outcome) => {
+                synced_files.extend(outcome.files.iter().cloned());
+                let single = batch.len() == 1;
                 for &position in &batch {
                     let kind = &order[position];
-                    let retrieved = counts.get(kind).copied().unwrap_or(0);
-                    record(kind, Ok(retrieved), &mut succeeded, &mut failed, &mut items)?;
+                    let retrieved = outcome.counts.get(kind).copied().unwrap_or(0);
+                    let warnings = outcome.warnings_for(kind, single);
+                    record(
+                        kind,
+                        Ok((retrieved, warnings)),
+                        &mut succeeded,
+                        &mut failed,
+                        &mut items,
+                    )?;
                 }
             }
             Err(_) => {
@@ -1321,9 +2120,16 @@ fn retrieve_metadata_blocking(
                         break 'batches;
                     }
                     let kind = &order[position];
-                    let outcome = retrieve_members(&workspace, &username, &groups[position])
-                        .map(|counts| counts.get(kind).copied().unwrap_or(0))
-                        .map_err(|error| format!("{kind}: {error}"));
+                    let outcome =
+                        retrieve_members(&workspace, &username, &groups[position], &run.cancelled)
+                            .map(|outcome| {
+                                synced_files.extend(outcome.files.iter().cloned());
+                                (
+                                    outcome.counts.get(kind).copied().unwrap_or(0),
+                                    outcome.warnings_for(kind, true),
+                                )
+                            })
+                            .map_err(|error| format!("{kind}: {error}"));
                     record(kind, outcome, &mut succeeded, &mut failed, &mut items)?;
                 }
             }
@@ -1333,6 +2139,26 @@ fn retrieve_metadata_blocking(
     let was_cancelled = cancelled();
     let success = failed == 0 && !was_cancelled;
     let skipped = total.saturating_sub(items.len());
+
+    // What was retrieved now matches the org. Best-effort: bookkeeping must
+    // never fail a retrieve that worked.
+    if succeeded > 0 {
+        let _ = crate::changes::record_synced_files(&app, &workspace, &synced_files, None);
+    }
+
+    // Types the run never reached are reported, not silently dropped from the
+    // results — the summary used to count them while the list omitted them.
+    for kind in &order {
+        if !items.iter().any(|item| &item.kind == kind) {
+            items.push(RetrieveResultItem {
+                kind: kind.clone(),
+                status: "skipped".to_string(),
+                retrieved: 0,
+                message: Some("Not retrieved — the run was cancelled first.".to_string()),
+                warnings: Vec::new(),
+            });
+        }
+    }
     let summary = if was_cancelled {
         format!("Cancelled — {succeeded} type(s) retrieved, {skipped} skipped.")
     } else if success {
@@ -1366,43 +2192,15 @@ fn retrieve_metadata_blocking(
         total: total as u32,
         succeeded,
         failed,
+        cancelled: was_cancelled,
     })
-}
-
-/// Outcome of a deploy or validation, including the job id a validation
-/// produces so a later quick-deploy can reuse the work instead of re-running it.
-#[derive(TS, Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/types/generated/")]
-pub struct DeployOutcome {
-    pub job_id: Option<String>,
-    pub status: String,
-    pub summary: String,
-    pub check_only: bool,
-}
-
-fn deploy_outcome(stdout: &[u8], check_only: bool) -> DeployOutcome {
-    let json: serde_json::Value = serde_json::from_slice(stdout).unwrap_or_default();
-    DeployOutcome {
-        job_id: json
-            .pointer("/result/id")
-            .and_then(serde_json::Value::as_str)
-            .map(|id| id.to_string()),
-        status: json
-            .pointer("/result/status")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("Succeeded")
-            .to_string(),
-        summary: summarize_sf_json(stdout),
-        check_only,
-    }
 }
 
 /// Reads `packageDirectories[].path` from the project manifest.
 ///
 /// Deploys hardcoded `force-app`, so a project laid out any other way — `src`,
 /// `main`, or a multi-package repo — could not be deployed at all.
-fn package_directories(workspace: &Path) -> Vec<String> {
+pub(crate) fn package_directories(workspace: &Path) -> Vec<String> {
     let manifest = workspace.join("sfdx-project.json");
     let paths = fs::read_to_string(&manifest)
         .ok()
@@ -1430,26 +2228,11 @@ fn package_directories(workspace: &Path) -> Vec<String> {
     }
 }
 
-/// Adds either an explicit metadata selection or every package directory.
-fn add_deploy_scope(command: &mut Command, workspace: &Path, metadata: &[String]) {
-    if metadata.is_empty() {
-        for path in package_directories(workspace) {
-            command.arg("--source-dir");
-            command.arg(path);
-        }
-        return;
-    }
-    for entry in metadata {
-        command.arg("--metadata");
-        command.arg(entry);
-    }
-}
-
 /// Validates a caller-supplied list of workspace-relative paths.
 ///
 /// Every path goes through `resolve_in_workspace`, so a per-file action cannot
 /// be pointed outside the active org's workspace.
-fn resolve_paths(root: &Path, paths: &[String]) -> Result<Vec<String>, String> {
+pub(crate) fn resolve_paths(root: &Path, paths: &[String]) -> Result<Vec<String>, String> {
     if paths.is_empty() {
         return Err("No files or folders were selected.".to_string());
     }
@@ -1465,53 +2248,16 @@ fn resolve_paths(root: &Path, paths: &[String]) -> Result<Vec<String>, String> {
     Ok(resolved)
 }
 
-/// Deploys specific files or folders rather than the whole package directory.
-///
-/// `sf project deploy start --source-dir` accepts a file or a directory, so the
-/// same flag covers "deploy this class" and "deploy this folder".
-#[tauri::command]
-pub async fn deploy_paths(
-    app: tauri::AppHandle,
-    username: String,
-    paths: Vec<String>,
-) -> Result<DeployOutcome, String> {
-    blocking(move || {
-        let workspace = get_workspace(&app)?;
-        let targets = resolve_paths(&workspace, &paths)?;
-
-        let mut command = sf_command()?;
-        command.args([
-            "project",
-            "deploy",
-            "start",
-            "--target-org",
-            &username,
-            "--wait",
-            "10",
-        ]);
-        for target in &targets {
-            command.arg("--source-dir");
-            command.arg(target);
-        }
-        command.arg("--json");
-        command.current_dir(&workspace);
-
-        let output = command.output().map_err(|error| error.to_string())?;
-        parse_sf_json(&output)?;
-        Ok(deploy_outcome(&output.stdout, false))
-    })
-    .await
-}
-
 /// Retrieves specific files or folders from the org into the workspace.
 #[tauri::command]
 pub async fn retrieve_paths(
     app: tauri::AppHandle,
     username: String,
     paths: Vec<String>,
+    workspace_id: Option<String>,
 ) -> Result<String, String> {
     blocking(move || {
-        let workspace = get_workspace(&app)?;
+        let workspace = workspace_root(&app, workspace_id.as_deref())?;
         let targets = resolve_paths(&workspace, &paths)?;
 
         let mut command = sf_command()?;
@@ -1531,82 +2277,18 @@ pub async fn retrieve_paths(
         command.arg("--json");
         command.current_dir(&workspace);
 
-        let output = command.output().map_err(|error| error.to_string())?;
+        // Bounded, rather than a plain `output()` that could wait forever.
+        let run = RunGuard::begin(None);
+        let output = run_with_limits(command, None, &run.cancelled, RETRIEVE_TIMEOUT)?;
         parse_sf_json(&output)?;
+
+        let _ = crate::changes::record_synced_files(
+            &app,
+            &workspace,
+            &written_files(&output.stdout, &workspace),
+            None,
+        );
         Ok(summarize_sf_json(&output.stdout))
-    })
-    .await
-}
-
-/// Deploys the local workspace to `username`.
-///
-/// `check_only` runs `project deploy validate`, which registers a validated
-/// deployment server-side and returns its job id — feed that to `deploy_quick`
-/// to promote it without re-uploading and re-testing everything. `metadata`
-/// scopes the deploy to specific components; empty means the whole package
-/// directory.
-#[tauri::command]
-pub async fn deploy_workspace(
-    app: tauri::AppHandle,
-    username: String,
-    check_only: bool,
-    metadata: Option<Vec<String>>,
-) -> Result<DeployOutcome, String> {
-    blocking(move || {
-        let workspace = get_workspace(&app)?;
-        let scope = metadata.unwrap_or_default();
-
-        let mut command = sf_command()?;
-        command.args([
-            "project",
-            "deploy",
-            if check_only { "validate" } else { "start" },
-            "--target-org",
-            &username,
-            "--wait",
-            "10",
-        ]);
-        add_deploy_scope(&mut command, &workspace, &scope);
-        command.arg("--json");
-        command.current_dir(&workspace);
-
-        let output = command.output().map_err(|error| error.to_string())?;
-        parse_sf_json(&output)?;
-        Ok(deploy_outcome(&output.stdout, check_only))
-    })
-    .await
-}
-
-/// Promotes a previously validated deployment. This is what makes the
-/// pipeline's Validate step meaningful: without it the deploy step re-uploaded
-/// and re-ran everything the validation had just done.
-#[tauri::command]
-pub async fn deploy_quick(
-    app: tauri::AppHandle,
-    username: String,
-    job_id: String,
-) -> Result<DeployOutcome, String> {
-    blocking(move || {
-        let workspace = get_workspace(&app)?;
-
-        let mut command = sf_command()?;
-        command.args([
-            "project",
-            "deploy",
-            "quick",
-            "--target-org",
-            &username,
-            "--job-id",
-            &job_id,
-            "--wait",
-            "10",
-            "--json",
-        ]);
-        command.current_dir(&workspace);
-
-        let output = command.output().map_err(|error| error.to_string())?;
-        parse_sf_json(&output)?;
-        Ok(deploy_outcome(&output.stdout, false))
     })
     .await
 }
@@ -1616,8 +2298,16 @@ Workspace commands
 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 #[tauri::command]
-pub async fn get_workspace_root(app: tauri::AppHandle) -> Result<String, String> {
-    blocking(move || Ok(get_workspace(&app)?.to_string_lossy().to_string())).await
+pub async fn get_workspace_root(
+    app: tauri::AppHandle,
+    workspace_id: Option<String>,
+) -> Result<String, String> {
+    blocking(move || {
+        Ok(workspace_root(&app, workspace_id.as_deref())?
+            .to_string_lossy()
+            .to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1642,36 +2332,38 @@ Workspace registry
 #[tauri::command]
 pub async fn list_workspaces(app: tauri::AppHandle) -> Result<WorkspaceRegistry, String> {
     blocking(move || {
-        let mut registry = read_registry(&app)?;
-        let mut changed = false;
+        let mut registry = update_registry(&app, |registry| {
+            let mut changed = false;
 
-        // An `activeId` pointing at an entry that is no longer registered
-        // would leave the app with no active project at all.
-        if registry
-            .active_id
-            .as_ref()
-            .is_some_and(|id| !registry.workspaces.iter().any(|item| &item.id == id))
-        {
-            registry.active_id = None;
-            changed = true;
-        }
-
-        if registry.active_id.is_none() {
-            let resolved = get_workspace(&app)?;
-            let id = workspace_id(&resolved);
-
-            if !registry.workspaces.iter().any(|item| item.id == id) {
-                let mut entry = entry_for(&resolved);
-                entry.created_at = now_millis();
-                registry.workspaces.push(entry);
+            // An `activeId` pointing at an entry that is no longer registered
+            // would leave the app with no active project at all.
+            if registry
+                .active_id
+                .as_ref()
+                .is_some_and(|id| !registry.workspaces.iter().any(|item| &item.id == id))
+            {
+                registry.active_id = None;
+                changed = true;
             }
-            registry.active_id = Some(id);
-            changed = true;
-        }
 
-        if changed {
-            write_registry(&app, &registry)?;
-        }
+            if registry.active_id.is_none() {
+                let resolved = resolve_workspace(&app, registry)?;
+                let id = workspace_id(&resolved);
+
+                if !registry.workspaces.iter().any(|item| item.id == id) {
+                    let mut entry = entry_for(&resolved);
+                    entry.created_at = now_millis();
+                    registry.workspaces.push(entry);
+                }
+                registry.active_id = Some(id);
+                changed = true;
+            }
+
+            Ok((registry.clone(), changed))
+        })?;
+
+        // Reported once, on the response only — it is never written to disk.
+        registry.notice = lock(&REGISTRY_NOTICE).take();
         Ok(registry)
     })
     .await
@@ -1694,40 +2386,40 @@ pub async fn add_workspace(
         }
         ensure_sfdx_project(&root)?;
 
-        let mut registry = read_registry(&app)?;
-        let entry = entry_for(&root);
+        update_registry(&app, |registry| {
+            let entry = entry_for(&root);
 
-        let existing = registry
-            .workspaces
-            .iter()
-            .position(|item| item.id == entry.id);
+            let existing = registry
+                .workspaces
+                .iter()
+                .position(|item| item.id == entry.id);
 
-        let active = match existing {
-            Some(index) => registry.workspaces[index].clone(),
-            None => {
-                let mut created = entry;
-                created.created_at = now_millis();
-                registry.workspaces.push(created.clone());
-                created
-            }
-        };
+            let active = match existing {
+                Some(index) => registry.workspaces[index].clone(),
+                None => {
+                    let mut created = entry;
+                    created.created_at = now_millis();
+                    registry.workspaces.push(created.clone());
+                    created
+                }
+            };
 
-        // Picking a folder while an org is selected makes it that org's
-        // workspace, releasing whichever folder held the claim before.
-        if let Some(org) = org_id {
-            for entry in &mut registry.workspaces {
-                if entry.id == active.id {
-                    entry.org_id = Some(org.clone());
-                    entry.last_org_id = Some(org.clone());
-                } else if entry.org_id.as_deref() == Some(org.as_str()) {
-                    entry.org_id = None;
+            // Picking a folder while an org is selected makes it that org's
+            // workspace, releasing whichever folder held the claim before.
+            if let Some(org) = org_id {
+                for entry in &mut registry.workspaces {
+                    if entry.id == active.id {
+                        entry.org_id = Some(org.clone());
+                        entry.last_org_id = Some(org.clone());
+                    } else if entry.org_id.as_deref() == Some(org.as_str()) {
+                        entry.org_id = None;
+                    }
                 }
             }
-        }
 
-        registry.active_id = Some(active.id.clone());
-        write_registry(&app, &registry)?;
-        Ok(active)
+            registry.active_id = Some(active.id.clone());
+            Ok((active, true))
+        })
     })
     .await
 }
@@ -1749,50 +2441,50 @@ pub async fn workspace_for_org(
     label: Option<String>,
 ) -> Result<WorkspaceEntry, String> {
     blocking(move || {
-        let mut registry = read_registry(&app)?;
-
-        // Already bound: just activate it.
-        if let Some(existing) = registry
-            .workspaces
-            .iter()
-            .find(|item| item.org_id.as_deref() == Some(org_id.as_str()))
-            .cloned()
-        {
-            // A folder deleted underneath us is recreated rather than leaving
-            // every workspace command failing.
-            ensure_sfdx_project(Path::new(&existing.path))?;
-            registry.active_id = Some(existing.id.clone());
-            write_registry(&app, &registry)?;
-            return Ok(existing);
-        }
-
         let root = org_workspaces_root(&app)?;
-        let base = sanitize_folder_name(label.as_deref().unwrap_or(&org_id));
 
-        // Two orgs can share an alias; suffix until the path is free of any
-        // folder already owned by a *different* org.
-        let mut candidate = root.join(&base);
-        let mut suffix = 2;
-        while registry
-            .workspaces
-            .iter()
-            .any(|item| item.id == workspace_id(&candidate))
-        {
-            candidate = root.join(format!("{base}-{suffix}"));
-            suffix += 1;
-        }
+        update_registry(&app, |registry| {
+            // Already bound: just activate it.
+            if let Some(existing) = registry
+                .workspaces
+                .iter()
+                .find(|item| item.org_id.as_deref() == Some(org_id.as_str()))
+                .cloned()
+            {
+                // A folder deleted underneath us is recreated rather than
+                // leaving every workspace command failing.
+                ensure_sfdx_project(Path::new(&existing.path))?;
+                let changed = registry.active_id.as_deref() != Some(existing.id.as_str());
+                registry.active_id = Some(existing.id.clone());
+                return Ok((existing, changed));
+            }
 
-        ensure_sfdx_project(&candidate)?;
+            let base = sanitize_folder_name(label.as_deref().unwrap_or(&org_id));
 
-        let mut entry = entry_for(&candidate);
-        entry.org_id = Some(org_id.clone());
-        entry.last_org_id = Some(org_id);
-        entry.created_at = now_millis();
+            // Two orgs can share an alias; suffix until the path is free of any
+            // folder already owned by a *different* org.
+            let mut candidate = root.join(&base);
+            let mut suffix = 2;
+            while registry
+                .workspaces
+                .iter()
+                .any(|item| item.id == workspace_id(&candidate))
+            {
+                candidate = root.join(format!("{base}-{suffix}"));
+                suffix += 1;
+            }
 
-        registry.active_id = Some(entry.id.clone());
-        registry.workspaces.push(entry.clone());
-        write_registry(&app, &registry)?;
-        Ok(entry)
+            ensure_sfdx_project(&candidate)?;
+
+            let mut entry = entry_for(&candidate);
+            entry.org_id = Some(org_id.clone());
+            entry.last_org_id = Some(org_id.clone());
+            entry.created_at = now_millis();
+
+            registry.active_id = Some(entry.id.clone());
+            registry.workspaces.push(entry.clone());
+            Ok((entry, true))
+        })
     })
     .await
 }
@@ -1807,26 +2499,25 @@ pub async fn bind_workspace_to_org(
     org_id: String,
 ) -> Result<WorkspaceRegistry, String> {
     blocking(move || {
-        let mut registry = read_registry(&app)?;
-
-        if !registry.workspaces.iter().any(|item| item.id == id) {
-            return Err("That workspace is no longer registered.".to_string());
-        }
-
-        for entry in &mut registry.workspaces {
-            if entry.id == id {
-                entry.org_id = Some(org_id.clone());
-                entry.last_org_id = Some(org_id.clone());
-            } else if entry.org_id.as_deref() == Some(org_id.as_str()) {
-                // Only one folder per org, so the previous owner is released
-                // rather than leaving two claims on the same org.
-                entry.org_id = None;
+        update_registry(&app, |registry| {
+            if !registry.workspaces.iter().any(|item| item.id == id) {
+                return Err("That workspace is no longer registered.".to_string());
             }
-        }
 
-        registry.active_id = Some(id);
-        write_registry(&app, &registry)?;
-        Ok(registry)
+            for entry in &mut registry.workspaces {
+                if entry.id == id {
+                    entry.org_id = Some(org_id.clone());
+                    entry.last_org_id = Some(org_id.clone());
+                } else if entry.org_id.as_deref() == Some(org_id.as_str()) {
+                    // Only one folder per org, so the previous owner is released
+                    // rather than leaving two claims on the same org.
+                    entry.org_id = None;
+                }
+            }
+
+            registry.active_id = Some(id);
+            Ok((registry.clone(), true))
+        })
     })
     .await
 }
@@ -1838,17 +2529,17 @@ pub async fn set_active_workspace(
     id: String,
 ) -> Result<WorkspaceEntry, String> {
     blocking(move || {
-        let mut registry = read_registry(&app)?;
-        let entry = registry
-            .workspaces
-            .iter()
-            .find(|item| item.id == id)
-            .cloned()
-            .ok_or_else(|| "That workspace is no longer registered.".to_string())?;
+        update_registry(&app, |registry| {
+            let entry = registry
+                .workspaces
+                .iter()
+                .find(|item| item.id == id)
+                .cloned()
+                .ok_or_else(|| "That workspace is no longer registered.".to_string())?;
 
-        registry.active_id = Some(entry.id.clone());
-        write_registry(&app, &registry)?;
-        Ok(entry)
+            registry.active_id = Some(entry.id.clone());
+            Ok((entry, true))
+        })
     })
     .await
 }
@@ -1860,16 +2551,16 @@ pub async fn remove_workspace(
     id: String,
 ) -> Result<WorkspaceRegistry, String> {
     blocking(move || {
-        let mut registry = read_registry(&app)?;
-        registry.workspaces.retain(|item| item.id != id);
+        update_registry(&app, |registry| {
+            registry.workspaces.retain(|item| item.id != id);
 
-        // Removing the active project promotes the next one, if any.
-        if registry.active_id.as_deref() == Some(id.as_str()) {
-            registry.active_id = registry.workspaces.first().map(|item| item.id.clone());
-        }
+            // Removing the active project promotes the next one, if any.
+            if registry.active_id.as_deref() == Some(id.as_str()) {
+                registry.active_id = registry.workspaces.first().map(|item| item.id.clone());
+            }
 
-        write_registry(&app, &registry)?;
-        Ok(registry)
+            Ok((registry.clone(), true))
+        })
     })
     .await
 }
@@ -1887,16 +2578,16 @@ pub async fn rename_workspace(
             return Err("A workspace name cannot be empty.".to_string());
         }
 
-        let mut registry = read_registry(&app)?;
-        let entry = registry
-            .workspaces
-            .iter_mut()
-            .find(|item| item.id == id)
-            .ok_or_else(|| "That workspace is no longer registered.".to_string())?;
-        entry.name = trimmed;
+        update_registry(&app, |registry| {
+            let entry = registry
+                .workspaces
+                .iter_mut()
+                .find(|item| item.id == id)
+                .ok_or_else(|| "That workspace is no longer registered.".to_string())?;
+            entry.name = trimmed;
 
-        write_registry(&app, &registry)?;
-        Ok(registry)
+            Ok((registry.clone(), true))
+        })
     })
     .await
 }
@@ -1910,12 +2601,13 @@ pub async fn set_workspace_org(
     org_id: Option<String>,
 ) -> Result<(), String> {
     blocking(move || {
-        let mut registry = read_registry(&app)?;
-        if let Some(entry) = registry.workspaces.iter_mut().find(|item| item.id == id) {
+        update_registry(&app, |registry| {
+            let Some(entry) = registry.workspaces.iter_mut().find(|item| item.id == id) else {
+                return Ok(((), false));
+            };
             entry.last_org_id = org_id;
-            write_registry(&app, &registry)?;
-        }
-        Ok(())
+            Ok(((), true))
+        })
     })
     .await
 }
@@ -1929,12 +2621,13 @@ pub async fn set_workspace_retrieved_org(
     org_id: String,
 ) -> Result<(), String> {
     blocking(move || {
-        let mut registry = read_registry(&app)?;
-        if let Some(entry) = registry.workspaces.iter_mut().find(|item| item.id == id) {
+        update_registry(&app, |registry| {
+            let Some(entry) = registry.workspaces.iter_mut().find(|item| item.id == id) else {
+                return Ok(((), false));
+            };
             entry.last_retrieved_org_id = Some(org_id);
-            write_registry(&app, &registry)?;
-        }
-        Ok(())
+            Ok(((), true))
+        })
     })
     .await
 }
@@ -1944,9 +2637,10 @@ pub async fn read_workspace(
     app: tauri::AppHandle,
     path: String,
     depth: Option<usize>,
+    workspace_id: Option<String>,
 ) -> Result<Vec<FileNode>, String> {
     blocking(move || {
-        let root = get_workspace(&app)?;
+        let root = workspace_root(&app, workspace_id.as_deref())?;
         let target = if path.trim().is_empty() {
             root.clone()
         } else {
@@ -1959,217 +2653,302 @@ pub async fn read_workspace(
     .await
 }
 
-#[tauri::command]
-pub async fn read_workspace_file(app: tauri::AppHandle, path: String) -> Result<String, String> {
-    blocking(move || {
-        let root = get_workspace(&app)?;
-        let full_path = resolve_in_workspace(&root, &path)?;
-        fs::read_to_string(full_path).map_err(|error| error.to_string())
-    })
-    .await
+/// Largest file the editor opens. The whole file crosses the IPC bridge as one
+/// string, and Monaco is unusable well before this size.
+const MAX_EDITOR_FILE_BYTES: u64 = 10 * 1024 * 1024;
+
+/// A NUL byte in the first block is the usual "this is binary" heuristic.
+pub(crate) fn looks_binary(bytes: &[u8]) -> bool {
+    bytes.iter().take(8000).any(|byte| *byte == 0)
 }
 
-#[tauri::command]
-pub async fn write_workspace_file(
-    app: tauri::AppHandle,
-    path: String,
-    content: String,
-) -> Result<String, String> {
-    blocking(move || {
-        let root = get_workspace(&app)?;
-        let full_path = resolve_in_workspace(&root, &path)?;
+/// Reads a file for the editor, refusing anything it cannot round-trip.
+///
+/// The errors say *why*, and the UI treats any of them as "do not open an
+/// editable buffer" — opening a binary static resource used to show an empty
+/// editor whose next save overwrote the real file.
+pub(crate) fn read_editor_text(path: &Path) -> Result<String, String> {
+    let metadata = fs::metadata(path).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => "The file no longer exists on disk.".to_string(),
+        _ => error.to_string(),
+    })?;
 
-        if let Some(parent) = full_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
+    if metadata.is_dir() {
+        return Err("This is a folder, not a file.".to_string());
+    }
+    if metadata.len() > MAX_EDITOR_FILE_BYTES {
+        return Err(format!(
+            "The file is {:.1} MB, larger than the {} MB the editor opens.",
+            metadata.len() as f64 / (1024.0 * 1024.0),
+            MAX_EDITOR_FILE_BYTES / (1024 * 1024)
+        ));
+    }
 
-        fs::write(&full_path, content).map_err(|error| error.to_string())?;
-        Ok(to_relative_string(&root, &full_path))
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    if looks_binary(&bytes) {
+        return Err("This is a binary file, so it can't be shown as text.".to_string());
+    }
+    String::from_utf8(bytes).map_err(|_| {
+        "The file isn't valid UTF-8 text, so it can't be edited safely here.".to_string()
     })
-    .await
 }
 
-#[tauri::command]
-pub async fn create_workspace_item(
-    app: tauri::AppHandle,
-    item_path: String,
-    is_folder: bool,
-) -> Result<String, String> {
-    blocking(move || {
-        let root = get_workspace(&app)?;
-        let absolute = resolve_in_workspace(&root, &item_path)?;
-
-        if absolute.exists() {
-            return Err(format!("'{item_path}' already exists."));
-        }
-
-        if is_folder {
-            fs::create_dir_all(&absolute).map_err(|error| error.to_string())?;
-        } else {
-            if let Some(parent) = absolute.parent() {
-                fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-            }
-            fs::write(&absolute, "").map_err(|error| error.to_string())?;
-        }
-
-        Ok(to_relative_string(&root, &absolute))
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn rename_workspace_item(
-    app: tauri::AppHandle,
-    item_path: String,
-    new_name: String,
-) -> Result<String, String> {
-    blocking(move || {
-        let root = get_workspace(&app)?;
-        let absolute = resolve_in_workspace(&root, &item_path)?;
-
-        if !absolute.exists() {
-            return Err(format!("'{item_path}' does not exist."));
-        }
-
-        let new_name = new_name.trim();
-        // `.` and `..` pass a separator check but resolve to the parent
-        // directory once joined, so reject them explicitly: the destination
-        // never goes through `resolve_in_workspace`.
-        if new_name.is_empty()
-            || new_name == "."
-            || new_name == ".."
-            || new_name.contains('/')
-            || new_name.contains('\\')
-        {
-            return Err("Name must be a single file or folder name.".to_string());
-        }
-
-        let new_absolute = absolute.with_file_name(new_name);
-        if !new_absolute.starts_with(&root) {
-            return Err("Renaming outside the workspace is not allowed.".to_string());
-        }
-        if new_absolute.exists() {
-            return Err(format!("'{new_name}' already exists."));
-        }
-
-        fs::rename(&absolute, &new_absolute).map_err(|error| error.to_string())?;
-        Ok(to_relative_string(&root, &new_absolute))
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn delete_workspace_item(app: tauri::AppHandle, item_path: String) -> Result<(), String> {
-    blocking(move || {
-        let root = get_workspace(&app)?;
-        let absolute = resolve_in_workspace(&root, &item_path)?;
-
-        if !absolute.exists() {
-            return Err(format!("'{item_path}' does not exist."));
-        }
-        if absolute == root {
-            return Err("The workspace root cannot be deleted.".to_string());
-        }
-
-        if absolute.is_dir() {
-            fs::remove_dir_all(&absolute).map_err(|error| error.to_string())?;
-        } else {
-            fs::remove_file(&absolute).map_err(|error| error.to_string())?;
-        }
-
-        Ok(())
-    })
-    .await
-}
+// Reading, writing, creating, renaming, moving and deleting workspace files
+// live in `workspace_fs`.
 
 /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Data & misc commands
 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
+/// Runs a SOQL query.
+///
+/// The query is passed with `--file` rather than `--query`. On Windows `sf` is
+/// `sf.cmd`, and Rust refuses to pass arguments containing line breaks to a
+/// batch file, so every multi-line query failed with "batch file arguments are
+/// invalid"; a file also sidesteps cmd.exe's 8191-character line limit.
 #[tauri::command]
-pub async fn run_query(username: String, query: String) -> Result<String, String> {
-    blocking(move || {
-        let mut command = sf_command()?;
-        command.args(["data", "query", "--target-org", &username, "--json"]);
-        command.arg("--query");
-        command.arg(query);
-
-        let output = run_cancellable(command, None)?;
-        // Surface the CLI's structured error (bad field, malformed SOQL) rather
-        // than a raw stdout/stderr dump, but hand the caller the full JSON so
-        // the results table can render the records.
-        parse_sf_json(&output)?;
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    })
-    .await
+pub async fn run_query(
+    username: String,
+    query: String,
+    run_id: Option<String>,
+) -> Result<String, String> {
+    blocking(move || run_query_file("query", &username, &query, "soql", run_id)).await
 }
 
-/// Set by `cancel_sf_command`, checked while a Developer Tools command runs.
-///
-/// The CLI child is killed rather than merely abandoned, so a long query stops
-/// consuming an org's API calls the moment the user gives up on it.
-static SF_COMMAND_CANCELLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-/// Requests cancellation of an in-flight Developer Tools command.
+/// Runs a SOSL search, passed by file for the same reasons as `run_query`.
 #[tauri::command]
-pub fn cancel_sf_command() {
-    SF_COMMAND_CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
+pub async fn run_search(
+    username: String,
+    query: String,
+    run_id: Option<String>,
+) -> Result<String, String> {
+    blocking(move || run_query_file("search", &username, &query, "sosl", run_id)).await
+}
+
+/// `sf data <verb> --file <tmp>`, returning the CLI's full JSON.
+fn run_query_file(
+    verb: &str,
+    username: &str,
+    query: &str,
+    extension: &str,
+    run_id: Option<String>,
+) -> Result<String, String> {
+    // Registered before the CLI is located: the first lookup can take seconds,
+    // and a Cancel pressed during it must still count.
+    let run = RunGuard::begin(run_id);
+    let query_file = TempFile::create(extension, query.trim())?;
+
+    let mut command = sf_command()?;
+    command.args(["data", verb, "--target-org", username, "--json", "--file"]);
+    command.arg(query_file.path());
+
+    let output = run_cancellable(command, None, &run)?;
+    // Surface the CLI's structured error (bad field, malformed SOQL) rather
+    // than a raw stdout/stderr dump, but hand the caller the full JSON so the
+    // results table can render the records.
+    parse_sf_json(&output)?;
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Cancellation flags for in-flight runs, keyed by the id the UI generated,
+/// with when each entry was created.
+///
+/// This replaced a single global flag that every new command reset: a Cancel
+/// pressed while the CLI was still starting was wiped, and cancelling in
+/// Developer Tools also killed a terminal command running at the same time.
+type RunTable = HashMap<String, (Arc<AtomicBool>, Instant)>;
+
+fn run_table() -> &'static Mutex<RunTable> {
+    static RUNS: OnceLock<Mutex<RunTable>> = OnceLock::new();
+    RUNS.get_or_init(Default::default)
+}
+
+/// A cancel for a run that never started (or already finished) is dropped
+/// after this long, so the table cannot grow without bound.
+const STALE_CANCEL_AGE: Duration = Duration::from_secs(600);
+
+/// One cancellable run, registered for as long as it is alive.
+pub(crate) struct RunGuard {
+    id: String,
+    pub(crate) cancelled: Arc<AtomicBool>,
+}
+
+impl RunGuard {
+    /// Registers a run. A cancel that arrived before registration is honoured.
+    /// Runs without an id (callers that never cancel) get a private one.
+    pub(crate) fn begin(id: Option<String>) -> Self {
+        let id = id.unwrap_or_else(|| format!("internal-{}", next_temp_suffix()));
+        let mut table = lock(run_table());
+        // Only entries no live run holds can be stale.
+        table.retain(|_, (flag, created)| {
+            Arc::strong_count(flag) > 1 || created.elapsed() < STALE_CANCEL_AGE
+        });
+        let cancelled = table
+            .entry(id.clone())
+            .or_insert_with(|| (Arc::new(AtomicBool::new(false)), Instant::now()))
+            .0
+            .clone();
+        Self { id, cancelled }
+    }
+}
+
+impl Drop for RunGuard {
+    fn drop(&mut self) {
+        lock(run_table()).remove(&self.id);
+    }
+}
+
+/// Stops the run started with `run_id`, killing its whole process tree. Safe
+/// to call before the run starts or after it ends.
+#[tauri::command]
+pub fn cancel_sf_command(run_id: String) {
+    let mut table = lock(run_table());
+    table
+        .entry(run_id)
+        .or_insert_with(|| (Arc::new(AtomicBool::new(false)), Instant::now()))
+        .0
+        .store(true, Ordering::SeqCst);
 }
 
 /// How long a Developer Tools command may run before being killed.
 ///
 /// Nothing here had a timeout: a hung CLI — an expired token waiting on stdin,
 /// a stalled network — held the pane forever with no way out.
-const SF_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+const SF_COMMAND_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Runs a command to completion, killing it on cancellation or timeout.
 fn run_cancellable(
+    command: Command,
+    input: Option<String>,
+    run: &RunGuard,
+) -> Result<std::process::Output, String> {
+    run_with_limits(command, input, &run.cancelled, SF_COMMAND_TIMEOUT)
+}
+
+/// Reads a child's pipe to the end on its own thread.
+fn spawn_pipe_reader<R: Read + Send + 'static>(
+    pipe: Option<R>,
+) -> Option<std::thread::JoinHandle<Vec<u8>>> {
+    pipe.map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut buffer = Vec::new();
+            let _ = pipe.read_to_end(&mut buffer);
+            buffer
+        })
+    })
+}
+
+fn join_pipe_reader(reader: Option<std::thread::JoinHandle<Vec<u8>>>) -> Vec<u8> {
+    reader
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default()
+}
+
+/// Stops a child and every process it started.
+///
+/// On Windows `sf` is `sf.cmd`: the child is `cmd.exe`, and the CLI itself runs
+/// as a `node.exe` grandchild. `Child::kill` only ended the wrapper, so after
+/// "Cancel" the CLI kept running and kept spending the org's API calls. On
+/// Unix the child leads its own process group (see `run_with_limits`), which is
+/// signalled as a whole.
+pub(crate) fn kill_process_tree(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        let mut taskkill = Command::new("taskkill");
+        hide_console(&mut taskkill);
+        let _ = taskkill
+            .args(["/T", "/F", "/PID", &child.id().to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(["-KILL", "--", &format!("-{}", child.id())])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+
+    let _ = child.kill();
+    // Reap it so no process handle is left behind.
+    let _ = child.wait();
+}
+
+/// The runner behind `run_cancellable`, with the timeout as a parameter so
+/// tests do not have to wait five minutes.
+pub(crate) fn run_with_limits(
     mut command: Command,
     input: Option<String>,
+    cancelled: &AtomicBool,
+    timeout: Duration,
 ) -> Result<std::process::Output, String> {
-    SF_COMMAND_CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
+    if cancelled.load(Ordering::SeqCst) {
+        return Err("Cancelled.".to_string());
+    }
 
     command.stdin(Stdio::piped());
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
 
+    // Its own process group, so cancelling can stop everything it spawns.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+
     let mut child = command.spawn().map_err(|error| error.to_string())?;
 
+    // Drain both pipes from the moment the child starts. They used to be read
+    // only after it exited, so once `sf` wrote more than the OS pipe buffer —
+    // a few KB on Windows, i.e. a modest SOQL result — it blocked on the write,
+    // never exited, and the query hung until the timeout killed it.
+    let stdout_reader = spawn_pipe_reader(child.stdout.take());
+    let stderr_reader = spawn_pipe_reader(child.stderr.take());
+
     if let Some(text) = input {
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| "Could not open stdin for the Salesforce CLI.".to_string())?;
-        // Written from its own thread for the same reason as `run_with_input`:
-        // writing inline deadlocks once either pipe buffer fills.
+        let Some(mut stdin) = child.stdin.take() else {
+            kill_process_tree(&mut child);
+            return Err("Could not open stdin for the Salesforce CLI.".to_string());
+        };
+        // Written from its own thread: a large input would otherwise block
+        // here until the child read it, while nothing polls for cancellation.
         std::thread::spawn(move || stdin.write_all(text.as_bytes()));
     } else {
         drop(child.stdin.take());
     }
 
-    let started = std::time::Instant::now();
-    loop {
-        match child.try_wait().map_err(|error| error.to_string())? {
-            Some(_) => break,
-            None => {
-                if SF_COMMAND_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
-                    let _ = child.kill();
-                    return Err("Cancelled.".to_string());
-                }
-                if started.elapsed() > SF_COMMAND_TIMEOUT {
-                    let _ = child.kill();
-                    return Err(format!(
-                        "The command was still running after {} seconds and was stopped.",
-                        SF_COMMAND_TIMEOUT.as_secs()
-                    ));
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
+            break status;
         }
-    }
+        // On cancel or timeout the readers are left to finish on their own:
+        // joining them could block if some process still holds a pipe open.
+        if cancelled.load(Ordering::SeqCst) {
+            kill_process_tree(&mut child);
+            return Err("Cancelled.".to_string());
+        }
+        if started.elapsed() > timeout {
+            kill_process_tree(&mut child);
+            return Err(format!(
+                "The command was still running after {} seconds and was stopped.",
+                timeout.as_secs()
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
 
-    child.wait_with_output().map_err(|error| error.to_string())
+    Ok(std::process::Output {
+        status,
+        stdout: join_pipe_reader(stdout_reader),
+        stderr: join_pipe_reader(stderr_reader),
+    })
 }
 
 /// Runs an `sf` command that emits `--json`, validating the envelope.
@@ -2184,8 +2963,10 @@ pub async fn run_sf_json(
     app: tauri::AppHandle,
     args: Vec<String>,
     input: Option<String>,
+    run_id: Option<String>,
 ) -> Result<String, String> {
     blocking(move || {
+        let run = RunGuard::begin(run_id);
         let mut command = sf_command()?;
         if !args.is_empty() {
             command.args(&args);
@@ -2194,7 +2975,7 @@ pub async fn run_sf_json(
             command.current_dir(workspace);
         }
 
-        let output = run_cancellable(command, input)?;
+        let output = run_cancellable(command, input, &run)?;
         let json = parse_sf_json(&output)?;
 
         // `apex execute` carries its own success flag inside a status-0
@@ -2263,8 +3044,10 @@ pub async fn run_command(
     app: tauri::AppHandle,
     args: Vec<String>,
     input: Option<String>,
+    run_id: Option<String>,
 ) -> Result<String, String> {
     blocking(move || {
+        let run = RunGuard::begin(run_id);
         let mut command = sf_command()?;
         if !args.is_empty() {
             command.args(&args);
@@ -2273,7 +3056,7 @@ pub async fn run_command(
             command.current_dir(workspace);
         }
 
-        let output = run_cancellable(command, input)?;
+        let output = run_cancellable(command, input, &run)?;
         output_to_string(&output)
     })
     .await
@@ -2284,12 +3067,16 @@ Diff Check
 ───────────────────────────────────────────────────────────────── */
 
 /// One file's comparison between the workspace and the org.
-#[derive(TS, Debug, Clone, Serialize, Deserialize)]
+#[derive(TS, Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct DiffEntry {
-    /// Workspace-relative path, `/` separated.
+    /// Workspace-relative path, `/` separated. For an org-only file, where it
+    /// would sit in the workspace.
     pub path: String,
+    /// Where the org's copy sits in the session, when that differs from
+    /// `path` (the org's folder layout differs from the workspace's).
+    pub org_path: Option<String>,
     /// `changed` | `identical` | `localOnly` | `orgOnly` | `binary`
     pub status: String,
     pub local_lines: u32,
@@ -2305,9 +3092,13 @@ pub struct DiffEntry {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct DiffSession {
-    pub session_dir: String,
+    /// Names the session to `read_diff_pair`. A number, not a path: passing
+    /// the directory itself let a crafted `..` read files outside it.
+    pub session_id: String,
     pub target: String,
     pub entries: Vec<DiffEntry>,
+    /// Problems the retrieve reported, such as a component the org lacks.
+    pub warnings: Vec<String>,
 }
 
 fn diff_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -2332,28 +3123,7 @@ pub async fn clear_diff_sessions(app: tauri::AppHandle) -> Result<(), String> {
     .await
 }
 
-/// Copies a file or directory, creating parents as needed.
-fn copy_into(source: &Path, destination: &Path) -> Result<(), String> {
-    if source.is_dir() {
-        for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
-            let entry = entry.map_err(|error| error.to_string())?;
-            let path = entry.path();
-            if is_ignored_path(&path) {
-                continue;
-            }
-            copy_into(&path, &destination.join(entry.file_name()))?;
-        }
-        return Ok(());
-    }
-
-    if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-    fs::copy(source, destination).map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-/// Every file under `path`, as workspace-relative strings.
+/// Every file under `path`, as `root`-relative strings.
 fn files_under(root: &Path, path: &Path, out: &mut Vec<String>) {
     if path.is_file() {
         out.push(to_relative_string(root, path));
@@ -2363,19 +3133,125 @@ fn files_under(root: &Path, path: &Path, out: &mut Vec<String>) {
         return;
     };
     for entry in entries.flatten() {
-        let child = entry.path();
-        if is_ignored_path(&child) {
+        // The entry's own name: checking the absolute path hid everything
+        // when the workspace itself lived under a folder such as `.cache`.
+        if is_ignored_path(Path::new(&entry.file_name())) {
             continue;
         }
-        files_under(root, &child, out);
+        files_under(root, &entry.path(), out);
     }
+}
+
+/// The package directory `relative` sits in, if any.
+fn package_dir_for(package_dirs: &[String], relative: &str) -> Option<String> {
+    package_dirs
+        .iter()
+        .map(|dir| dir.trim_matches('/').replace('\\', "/"))
+        .find(|dir| relative == dir || relative.starts_with(&format!("{dir}/")))
+}
+
+/// A diff session id: digits only, so it can never name another directory.
+fn valid_session_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 32 && id.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Whether a generated `package.xml` names any component.
+fn manifest_has_types(xml: &str) -> bool {
+    xml.contains("<types>")
+}
+
+/// One side of a comparison: a relative path and its text (`None` when the
+/// file is binary or unreadable).
+type DiffSide = Vec<(String, Option<String>)>;
+
+fn basename(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// Pairs the workspace's files with the org's and classifies each pair.
+///
+/// Files match by path. What is left over is matched by file name when that
+/// name is unique on both sides — the org's copy lands in the default
+/// `main/default` layout, which a workspace organised differently would
+/// otherwise report as every file deleted locally and added in the org.
+fn classify_diff(local: DiffSide, org: DiffSide) -> Vec<DiffEntry> {
+    let mut org_by_path: BTreeMap<String, Option<String>> = org.into_iter().collect();
+    let mut entries = Vec::new();
+    let mut unmatched_local: Vec<(String, Option<String>)> = Vec::new();
+
+    let entry = |path: String,
+                 org_path: Option<String>,
+                 local: Option<&Option<String>>,
+                 org: Option<&Option<String>>| {
+        let local_text = local.and_then(Option::as_ref);
+        let org_text = org.and_then(Option::as_ref);
+        // The outer option says whether the file exists on that side; the
+        // inner one whether it could be read as text.
+        let status = match (local, org) {
+            (Some(_), None) => "localOnly",
+            (None, Some(_)) => "orgOnly",
+            (Some(Some(mine)), Some(Some(theirs))) if mine == theirs => "identical",
+            (Some(Some(_)), Some(Some(_))) => "changed",
+            _ => "binary",
+        };
+        DiffEntry {
+            path,
+            org_path,
+            status: status.to_string(),
+            local_lines: local_text.map(|text| line_count(text)).unwrap_or(0),
+            org_lines: org_text.map(|text| line_count(text)).unwrap_or(0),
+        }
+    };
+
+    for (path, text) in local {
+        match org_by_path.remove(&path) {
+            Some(org_text) => entries.push(entry(path, None, Some(&text), Some(&org_text))),
+            None => unmatched_local.push((path, text)),
+        }
+    }
+
+    let unique = |names: Vec<&str>| {
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for name in names {
+            *counts.entry(name.to_string()).or_default() += 1;
+        }
+        counts
+    };
+    let local_names = unique(unmatched_local.iter().map(|(p, _)| basename(p)).collect());
+    let org_names = unique(org_by_path.keys().map(|p| basename(p)).collect());
+
+    for (path, text) in unmatched_local {
+        let name = basename(&path).to_string();
+        let pairable = local_names.get(&name) == Some(&1) && org_names.get(&name) == Some(&1);
+        let org_match = pairable
+            .then(|| {
+                org_by_path
+                    .keys()
+                    .find(|org_path| basename(org_path) == name)
+                    .cloned()
+            })
+            .flatten();
+        match org_match {
+            Some(org_path) => {
+                let org_text = org_by_path.remove(&org_path).flatten();
+                entries.push(entry(path, Some(org_path), Some(&text), Some(&org_text)));
+            }
+            None => entries.push(entry(path, None, Some(&text), None)),
+        }
+    }
+
+    for (path, text) in org_by_path {
+        entries.push(entry(path, None, None, Some(&text)));
+    }
+
+    entries.sort_by(|a, b| a.path.cmp(&b.path));
+    entries
 }
 
 /// Text files only: comparing the bytes of a static resource is meaningless.
 fn read_text(path: &Path) -> Option<String> {
     let bytes = fs::read(path).ok()?;
-    // A NUL byte in the first block is the usual "this is binary" heuristic.
-    if bytes.iter().take(8000).any(|byte| *byte == 0) {
+    if looks_binary(&bytes) {
         return None;
     }
     String::from_utf8(bytes).ok()
@@ -2389,115 +3265,145 @@ fn line_count(text: &str) -> u32 {
     }
 }
 
-/// Classifies one file from the two sides of a comparison.
-fn diff_status(
-    local: Option<&String>,
-    org: Option<&String>,
-    org_file_exists: bool,
-) -> &'static str {
-    match (local, org) {
-        (Some(local_text), Some(org_text)) => {
-            if local_text == org_text {
-                "identical"
-            } else {
-                "changed"
-            }
-        }
-        // Readable locally but not as text on the other side.
-        (Some(_), None) if org_file_exists => "binary",
-        (Some(_), None) => "localOnly",
-        (None, Some(_)) => "orgOnly",
-        (None, None) => "binary",
+/// How long generating the manifest for a Diff Check may take.
+const MANIFEST_TIMEOUT: Duration = Duration::from_secs(2 * 60);
+
+/// Creates the empty project a Diff Check retrieves the org's copy into: just
+/// the workspace's package directory, so retrieved files land under the same
+/// top-level folder.
+///
+/// The directory itself must exist — the CLI refuses to retrieve into a
+/// project whose `sfdx-project.json` names a package directory that is not on
+/// disk, which failed every Diff Check.
+fn write_session_project(
+    session_dir: &Path,
+    workspace: &Path,
+    package_dir: &str,
+) -> Result<(), String> {
+    fs::create_dir_all(session_dir.join(package_dir)).map_err(|error| error.to_string())?;
+
+    let mut project = serde_json::json!({
+        "packageDirectories": [{ "path": package_dir, "default": true }],
+    });
+    if let Some(version) = source_api_version(workspace) {
+        project["sourceApiVersion"] = serde_json::Value::String(version);
     }
+    fs::write(
+        session_dir.join("sfdx-project.json"),
+        serde_json::to_string_pretty(&project).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+
+    if let Ok(forceignore) = fs::read(workspace.join(".forceignore")) {
+        let _ = fs::write(session_dir.join(".forceignore"), forceignore);
+    }
+    Ok(())
 }
 
 /// Compares a workspace file or folder against the org's current version.
 ///
-/// Works by seeding a throwaway SFDX project, copying the selection into it and
-/// letting `project retrieve start --source-dir` overwrite the copy with what
-/// the org has. No `sf` command emits a textual diff, and `--source-dir` needs a
-/// local file present in order to name the component.
+/// A manifest is generated from the local selection, then retrieved into an
+/// empty scratch project whose package directory matches the workspace's.
+///
+/// This replaced copying the local files into the scratch project and letting
+/// a retrieve overwrite them. That approach treated *any* retrieve failure —
+/// an expired session, a network error — as "the org has none of this", so
+/// every file read as local-only; and a component missing from the org left
+/// the local copy in place, so it read as identical.
 #[tauri::command]
 pub async fn diff_workspace_path(
     app: tauri::AppHandle,
     username: String,
     path: String,
+    workspace_id: Option<String>,
+    run_id: Option<String>,
 ) -> Result<DiffSession, String> {
     blocking(move || {
-        let workspace = get_workspace(&app)?;
+        let run = RunGuard::begin(run_id);
+        let workspace = workspace_root(&app, workspace_id.as_deref())?;
         let target = resolve_in_workspace(&workspace, &path)?;
         if !target.exists() {
             return Err(format!("'{path}' no longer exists in the workspace."));
         }
-
         let relative = to_relative_string(&workspace, &target);
-        let session_dir = diff_root(&app)?.join(now_millis().to_string());
-        ensure_sfdx_project(&session_dir)?;
 
-        // The org only reports components it can name from local source, so the
-        // selection has to exist in the session project first.
-        copy_into(&target, &session_dir.join(&relative))?;
+        let package_dir =
+            package_dir_for(&package_directories(&workspace), &relative).ok_or_else(|| {
+                format!(
+                    "Diff Check compares metadata inside a package directory such as \
+                     force-app, and '{relative}' is outside them."
+                )
+            })?;
 
-        let mut command = sf_command()?;
-        command.args([
-            "project",
-            "retrieve",
-            "start",
-            "--target-org",
-            &username,
-            "--source-dir",
-            &relative,
-            "--wait",
-            "20",
-            "--json",
-        ]);
-        command.current_dir(&session_dir);
-        let output = command.output().map_err(|error| error.to_string())?;
+        let session_id = format!("{}{}", now_millis(), std::process::id());
+        let session_dir = diff_root(&app)?.join(&session_id);
+        write_session_project(&session_dir, &workspace, &package_dir)?;
 
-        // A selection that exists nowhere in the org is not an error: every
-        // file simply reports as local-only below.
-        let org_has_nothing = parse_sf_json(&output).is_err();
+        // 1. Which components the selection contains.
+        let mut generate = sf_command()?;
+        generate.args(["project", "generate", "manifest", "--source-dir", &relative]);
+        generate.arg("--output-dir");
+        generate.arg(&session_dir);
+        generate.args(["--name", "package", "--json"]);
+        generate.current_dir(&workspace);
+        let output = run_with_limits(generate, None, &run.cancelled, MANIFEST_TIMEOUT)?;
+        parse_sf_json(&output).map_err(|error| {
+            format!("Could not tell which metadata '{relative}' holds: {error}")
+        })?;
 
-        let mut paths: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        let mut local_files = Vec::new();
-        files_under(&workspace, &target, &mut local_files);
-        paths.extend(local_files);
-
-        let session_target = session_dir.join(&relative);
-        if !org_has_nothing && session_target.exists() {
-            let mut org_files = Vec::new();
-            files_under(&session_dir, &session_target, &mut org_files);
-            paths.extend(org_files);
+        let manifest = session_dir.join("package.xml");
+        let xml = fs::read_to_string(&manifest).unwrap_or_default();
+        if !manifest_has_types(&xml) {
+            return Err(format!(
+                "'{relative}' contains no Salesforce metadata to compare."
+            ));
         }
 
-        let mut entries = Vec::new();
-        for item in paths {
-            let local_path = workspace.join(&item);
-            let org_path = session_dir.join(&item);
+        // 2. The org's copy of exactly those components. Failures here are
+        //    real errors, reported as such.
+        let mut retrieve = sf_command()?;
+        retrieve.args(["project", "retrieve", "start", "--manifest"]);
+        retrieve.arg(&manifest);
+        retrieve.args(["--target-org", &username, "--wait", "20", "--json"]);
+        retrieve.current_dir(&session_dir);
+        let output = run_with_limits(retrieve, None, &run.cancelled, RETRIEVE_TIMEOUT)?;
+        parse_sf_json(&output)?;
 
-            let local = if local_path.is_file() {
-                read_text(&local_path)
-            } else {
-                None
-            };
-            let org = if !org_has_nothing && org_path.is_file() {
-                read_text(&org_path)
-            } else {
-                None
-            };
+        let warnings: Vec<String> = retrieve_warnings(&output.stdout)
+            .into_values()
+            .flatten()
+            .collect();
 
-            entries.push(DiffEntry {
-                status: diff_status(local.as_ref(), org.as_ref(), org_path.is_file()).to_string(),
-                local_lines: local.as_deref().map(line_count).unwrap_or(0),
-                org_lines: org.as_deref().map(line_count).unwrap_or(0),
-                path: item,
-            });
-        }
+        // 3. Compare.
+        let mut local_paths = Vec::new();
+        files_under(&workspace, &target, &mut local_paths);
+        let local: DiffSide = local_paths
+            .into_iter()
+            .map(|file| {
+                let text = read_text(&workspace.join(&file));
+                (file, text)
+            })
+            .collect();
+
+        let mut org_paths = Vec::new();
+        files_under(
+            &session_dir,
+            &session_dir.join(&package_dir),
+            &mut org_paths,
+        );
+        let org: DiffSide = org_paths
+            .into_iter()
+            .map(|file| {
+                let text = read_text(&session_dir.join(&file));
+                (file, text)
+            })
+            .collect();
 
         Ok(DiffSession {
-            session_dir: session_dir.to_string_lossy().to_string(),
+            session_id,
             target: relative,
-            entries,
+            entries: classify_diff(local, org),
+            warnings,
         })
     })
     .await
@@ -2516,21 +3422,26 @@ pub struct DiffPair {
 #[tauri::command]
 pub async fn read_diff_pair(
     app: tauri::AppHandle,
-    session_dir: String,
+    session_id: String,
     path: String,
+    org_path: Option<String>,
+    workspace_id: Option<String>,
 ) -> Result<DiffPair, String> {
     blocking(move || {
-        let workspace = get_workspace(&app)?;
-        let session = PathBuf::from(&session_dir);
+        let workspace = workspace_root(&app, workspace_id.as_deref())?;
 
-        // The session directory is app-managed, so confine reads to it just as
-        // workspace reads are confined to the workspace.
-        if !session.starts_with(diff_root(&app)?) {
+        // The id is digits only and the session always lives in the app's own
+        // diff folder, so no request can read outside it.
+        if !valid_session_id(&session_id) {
             return Err("Unknown diff session.".to_string());
+        }
+        let session = diff_root(&app)?.join(&session_id);
+        if !session.is_dir() {
+            return Err("That diff session has been closed.".to_string());
         }
 
         let local_path = resolve_in_workspace(&workspace, &path)?;
-        let org_path = resolve_in_workspace(&session, &path)?;
+        let org_path = resolve_in_workspace(&session, org_path.as_deref().unwrap_or(&path))?;
 
         Ok(DiffPair {
             local: read_text(&local_path).unwrap_or_default(),
@@ -2607,6 +3518,7 @@ mod workspace_registry_tests {
                 last_retrieved_org_id: None,
                 created_at: 123,
             }],
+            notice: None,
         };
 
         let text = serde_json::to_string(&registry).unwrap();
@@ -2651,6 +3563,7 @@ mod workspace_registry_tests {
             version: 3,
             active_id: None,
             workspaces: vec![],
+            notice: None,
         };
         assert!(!registry
             .workspaces
@@ -2670,37 +3583,171 @@ mod workspace_registry_tests {
         assert_eq!(parsed.workspaces[0].created_at, 0);
     }
 
+    fn side(files: &[(&str, Option<&str>)]) -> DiffSide {
+        files
+            .iter()
+            .map(|(path, text)| (path.to_string(), text.map(str::to_string)))
+            .collect()
+    }
+
+    fn statuses(entries: &[DiffEntry]) -> Vec<(String, String)> {
+        entries
+            .iter()
+            .map(|entry| (entry.path.clone(), entry.status.clone()))
+            .collect()
+    }
+
     #[test]
     fn identical_text_is_not_reported_as_a_change() {
-        let same = String::from("public class A {}");
-        assert_eq!(diff_status(Some(&same), Some(&same), true), "identical");
+        let entries = classify_diff(
+            side(&[("c/A.cls", Some("public class A {}"))]),
+            side(&[("c/A.cls", Some("public class A {}"))]),
+        );
+        assert_eq!(
+            statuses(&entries),
+            vec![("c/A.cls".into(), "identical".into())]
+        );
     }
 
     #[test]
     fn differing_text_is_a_change() {
-        let local = String::from("public class A {}");
-        let org = String::from("public class B {}");
-        assert_eq!(diff_status(Some(&local), Some(&org), true), "changed");
+        let entries = classify_diff(
+            side(&[("c/A.cls", Some("public class A {}"))]),
+            side(&[("c/A.cls", Some("public class B {}"))]),
+        );
+        assert_eq!(entries[0].status, "changed");
+        assert_eq!((entries[0].local_lines, entries[0].org_lines), (1, 1));
     }
 
     #[test]
     fn a_file_the_org_does_not_have_is_local_only() {
-        let local = String::from("new");
-        assert_eq!(diff_status(Some(&local), None, false), "localOnly");
+        // The scratch project starts empty, so a component missing from the
+        // org leaves nothing behind to be mistaken for an identical copy.
+        let entries = classify_diff(side(&[("c/New.cls", Some("new"))]), side(&[]));
+        assert_eq!(entries[0].status, "localOnly");
     }
 
     #[test]
     fn a_file_missing_locally_is_org_only() {
-        let org = String::from("theirs");
-        assert_eq!(diff_status(None, Some(&org), true), "orgOnly");
+        let entries = classify_diff(side(&[]), side(&[("c/Theirs.cls", Some("theirs"))]));
+        assert_eq!(entries[0].status, "orgOnly");
     }
 
     #[test]
     fn unreadable_text_on_a_present_file_is_binary() {
         // Static resources exist on both sides but cannot be compared as text.
-        let local = String::from("local");
-        assert_eq!(diff_status(Some(&local), None, true), "binary");
-        assert_eq!(diff_status(None, None, true), "binary");
+        let entries = classify_diff(
+            side(&[("r/logo.resource", None), ("r/data.resource", Some("text"))]),
+            side(&[("r/logo.resource", None), ("r/data.resource", None)]),
+        );
+        assert!(entries.iter().all(|entry| entry.status == "binary"));
+    }
+
+    #[test]
+    fn a_different_folder_layout_pairs_files_by_name() {
+        let entries = classify_diff(
+            side(&[("force-app/classes/A.cls", Some("local"))]),
+            side(&[("force-app/main/default/classes/A.cls", Some("org"))]),
+        );
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "force-app/classes/A.cls");
+        assert_eq!(
+            entries[0].org_path.as_deref(),
+            Some("force-app/main/default/classes/A.cls")
+        );
+        assert_eq!(entries[0].status, "changed");
+    }
+
+    #[test]
+    fn ambiguous_names_are_not_paired() {
+        let entries = classify_diff(
+            side(&[("a/one/Util.cls", Some("1")), ("a/two/Util.cls", Some("2"))]),
+            side(&[("b/Util.cls", Some("1"))]),
+        );
+        assert_eq!(
+            entries.iter().filter(|e| e.status == "localOnly").count(),
+            2
+        );
+        assert_eq!(entries.iter().filter(|e| e.status == "orgOnly").count(), 1);
+    }
+
+    #[test]
+    fn diff_sessions_are_named_by_digits_only() {
+        assert!(valid_session_id("17000000000001234"));
+        for bad in ["", "..", "123/..", "abc", "12 34", &"1".repeat(40)] {
+            assert!(!valid_session_id(bad), "accepted {bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_path_belongs_to_its_package_directory() {
+        let dirs = vec!["force-app".to_string(), "packages/core/".to_string()];
+        assert_eq!(
+            package_dir_for(&dirs, "force-app/main/default/classes/A.cls").as_deref(),
+            Some("force-app")
+        );
+        assert_eq!(
+            package_dir_for(&dirs, "packages/core").as_deref(),
+            Some("packages/core")
+        );
+        assert_eq!(package_dir_for(&dirs, "force-apple/x.cls"), None);
+        assert_eq!(package_dir_for(&dirs, "README.md"), None);
+    }
+
+    #[test]
+    fn the_diff_session_project_has_its_package_directory_on_disk() {
+        let base = std::env::temp_dir().join(format!("forgesf-session-{}", next_temp_suffix()));
+        let workspace = base.join("workspace");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::write(
+            workspace.join("sfdx-project.json"),
+            r#"{"packageDirectories":[{"path":"packages/core","default":true}],"sourceApiVersion":"62.0"}"#,
+        )
+        .unwrap();
+        fs::write(workspace.join(".forceignore"), "**/jsconfig.json\n").unwrap();
+
+        let session = base.join("session");
+        write_session_project(&session, &workspace, "packages/core").unwrap();
+
+        // The CLI refuses to retrieve into a project whose package directory
+        // is missing.
+        assert!(session.join("packages/core").is_dir());
+        assert_eq!(package_directories(&session), vec!["packages/core"]);
+        assert_eq!(source_api_version(&session).as_deref(), Some("62.0"));
+        assert!(session.join(".forceignore").is_file());
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn the_cli_version_decides_support() {
+        let current = cli_info_from(Ok(
+            "@salesforce/cli/2.150.6 win32-x64 node-v24.19.0\n".to_string()
+        ));
+        assert!(current.found && current.supported);
+        assert_eq!(current.version.as_deref(), Some("2.150.6"));
+
+        let old = cli_info_from(Ok(
+            "@salesforce/cli/1.86.0 darwin-arm64 node-v18".to_string()
+        ));
+        assert!(old.found && !old.supported);
+        assert!(old.message.unwrap().contains("too old"));
+
+        let foreign = cli_info_from(Ok("sfdx-cli/7.209.6 win32-x64".to_string()));
+        assert!(foreign.found && !foreign.supported);
+
+        let missing = cli_info_from(Err("Could not find the 'sf' Salesforce CLI.".to_string()));
+        assert!(!missing.found && !missing.supported);
+    }
+
+    #[test]
+    fn an_empty_manifest_has_nothing_to_compare() {
+        assert!(!manifest_has_types(
+            "<Package><version>65.0</version></Package>"
+        ));
+        assert!(manifest_has_types(
+            "<Package><types><members>A</members><name>ApexClass</name></types></Package>"
+        ));
     }
 
     #[test]
@@ -2840,5 +3887,568 @@ c"
             apex_failure_message(&json),
             "The Apex ran but reported failure."
         );
+    }
+}
+
+#[cfg(test)]
+mod reliability_tests {
+    use super::*;
+
+    /// A fresh, empty directory under the OS temp dir.
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("forgesf-rel-{name}-{}", next_temp_suffix()));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A command that prints `path`'s contents to stdout.
+    fn print_file(path: &Path) -> Command {
+        if cfg!(windows) {
+            let mut command = Command::new("cmd");
+            command.arg("/C").arg("type").arg(path);
+            command
+        } else {
+            let mut command = Command::new("cat");
+            command.arg(path);
+            command
+        }
+    }
+
+    /// A command that runs for about 30 seconds, via a shell so it has a child.
+    fn long_running() -> Command {
+        if cfg!(windows) {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "ping -n 30 127.0.0.1 >NUL"]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "sleep 30"]);
+            command
+        }
+    }
+
+    /* ── CLI runner ─────────────────────────────────────────────── */
+
+    #[test]
+    fn the_runner_drains_output_larger_than_a_pipe_buffer() {
+        // Several MB: far beyond any OS pipe buffer. Before the fix the child
+        // blocked writing and the run only ended at the timeout.
+        let dir = scratch_dir("big-output");
+        let file = dir.join("big.txt");
+        let line = "0123456789abcdefghijklmnopqrstuvwxyz\n";
+        fs::write(&file, line.repeat(80_000)).unwrap();
+
+        let started = Instant::now();
+        let output = run_with_limits(
+            print_file(&file),
+            None,
+            &AtomicBool::new(false),
+            Duration::from_secs(60),
+        )
+        .expect("the command should complete");
+
+        assert!(output.status.success());
+        assert!(output.stdout.len() >= line.len() * 80_000);
+        assert!(started.elapsed() < Duration::from_secs(30));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cancelled_run_stops_promptly() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&cancelled);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            flag.store(true, Ordering::SeqCst);
+        });
+
+        let started = Instant::now();
+        let result = run_with_limits(long_running(), None, &cancelled, Duration::from_secs(60));
+
+        assert_eq!(result.unwrap_err(), "Cancelled.");
+        assert!(started.elapsed() < Duration::from_secs(15));
+    }
+
+    #[test]
+    fn a_run_past_its_timeout_is_stopped() {
+        let started = Instant::now();
+        let result = run_with_limits(
+            long_running(),
+            None,
+            &AtomicBool::new(false),
+            Duration::from_millis(500),
+        );
+
+        assert!(result.unwrap_err().contains("still running"));
+        assert!(started.elapsed() < Duration::from_secs(15));
+    }
+
+    #[test]
+    fn a_cancel_that_arrives_before_the_run_starts_is_honoured() {
+        let id = format!("early-{}", next_temp_suffix());
+        cancel_sf_command(id.clone());
+
+        let run = RunGuard::begin(Some(id.clone()));
+        assert!(run.cancelled.load(Ordering::SeqCst));
+        assert_eq!(
+            run_with_limits(
+                long_running(),
+                None,
+                &run.cancelled,
+                Duration::from_secs(60)
+            )
+            .unwrap_err(),
+            "Cancelled."
+        );
+
+        drop(run);
+        assert!(!lock(run_table()).contains_key(&id));
+    }
+
+    #[test]
+    fn cancelling_one_run_leaves_another_running() {
+        let first = RunGuard::begin(Some(format!("one-{}", next_temp_suffix())));
+        let second = RunGuard::begin(Some(format!("two-{}", next_temp_suffix())));
+
+        cancel_sf_command(first.id.clone());
+
+        assert!(first.cancelled.load(Ordering::SeqCst));
+        assert!(!second.cancelled.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_temp_file_is_removed_when_dropped() {
+        let file = TempFile::create("soql", "SELECT Id\nFROM Account").unwrap();
+        let path = file.path().to_path_buf();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "SELECT Id\nFROM Account"
+        );
+        drop(file);
+        assert!(!path.exists());
+    }
+
+    /* ── Registry storage ───────────────────────────────────────── */
+
+    fn entry_named(name: &str) -> WorkspaceEntry {
+        WorkspaceEntry {
+            id: name.to_string(),
+            name: name.to_string(),
+            path: format!("/tmp/{name}"),
+            org_id: None,
+            last_org_id: None,
+            last_retrieved_org_id: None,
+            created_at: 0,
+        }
+    }
+
+    #[test]
+    fn concurrent_registry_updates_do_not_lose_entries() {
+        let dir = scratch_dir("registry-concurrent");
+        let path = dir.join(WORKSPACE_CONFIG_FILE);
+
+        let handles: Vec<_> = (0..16)
+            .map(|index| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    update_registry_at(&path, |registry| {
+                        registry
+                            .workspaces
+                            .push(entry_named(&format!("ws-{index}")));
+                        Ok(((), true))
+                    })
+                    .unwrap();
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let registry = update_registry_at(&path, |registry| Ok((registry.clone(), false))).unwrap();
+        assert_eq!(registry.workspaces.len(), 16);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Tests that produce a registry notice share `REGISTRY_NOTICE`; running
+    /// them one at a time keeps one test from taking the other's notice.
+    static NOTICE_TESTS: Mutex<()> = Mutex::new(());
+
+    fn corrupt_backups(dir: &Path) -> Vec<PathBuf> {
+        fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.to_string_lossy().contains(".corrupt-"))
+            .collect()
+    }
+
+    #[test]
+    fn an_unparseable_registry_is_backed_up_not_overwritten() {
+        let _serial = lock(&NOTICE_TESTS);
+        let _ = lock(&REGISTRY_NOTICE).take();
+        let dir = scratch_dir("registry-corrupt");
+        let path = dir.join(WORKSPACE_CONFIG_FILE);
+        fs::write(&path, "{ this is not json").unwrap();
+
+        let registry = update_registry_at(&path, |registry| {
+            registry.workspaces.push(entry_named("fresh"));
+            Ok((registry.clone(), true))
+        })
+        .unwrap();
+
+        // A new list was started…
+        assert_eq!(registry.workspaces.len(), 1);
+        // …and the original survives, byte for byte.
+        let backups = corrupt_backups(&dir);
+        assert_eq!(backups.len(), 1);
+        assert_eq!(
+            fs::read_to_string(&backups[0]).unwrap(),
+            "{ this is not json"
+        );
+        // The user is told once.
+        assert!(lock(&REGISTRY_NOTICE)
+            .take()
+            .is_some_and(|notice| notice.contains("could not be read")));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_registry_from_a_newer_version_is_preserved() {
+        let _serial = lock(&NOTICE_TESTS);
+        let dir = scratch_dir("registry-newer");
+        let path = dir.join(WORKSPACE_CONFIG_FILE);
+        let original = r#"{"version":99,"workspaces":[{"shape":"unknown"}]}"#;
+        fs::write(&path, original).unwrap();
+
+        let _guard = lock(&REGISTRY_LOCK);
+        let registry = read_registry_file(&path).unwrap();
+        drop(_guard);
+
+        assert!(registry.workspaces.is_empty());
+        let backups = corrupt_backups(&dir);
+        assert_eq!(fs::read_to_string(&backups[0]).unwrap(), original);
+        let _ = lock(&REGISTRY_NOTICE).take();
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_registry_is_simply_empty() {
+        let dir = scratch_dir("registry-missing");
+        let _guard = lock(&REGISTRY_LOCK);
+        let registry = read_registry_file(&dir.join(WORKSPACE_CONFIG_FILE)).unwrap();
+        assert!(registry.workspaces.is_empty());
+        assert!(corrupt_backups(&dir).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_stored_registry_carries_no_notice_field() {
+        // Even a registry holding a notice is stored in exactly the v3 shape
+        // older builds expect.
+        let dir = scratch_dir("registry-notice");
+        let path = dir.join(WORKSPACE_CONFIG_FILE);
+        let mut registry = empty_registry();
+        registry.notice = Some("shown once".to_string());
+
+        write_registry_file(&path, &registry).unwrap();
+        assert!(!fs::read_to_string(&path).unwrap().contains("notice"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /* ── File IO ────────────────────────────────────────────────── */
+
+    #[test]
+    fn an_atomic_write_replaces_the_content_and_leaves_no_temp_file() {
+        let dir = scratch_dir("atomic");
+        let path = dir.join("Foo.cls");
+        fs::write(&path, "old").unwrap();
+
+        write_atomic(&path, b"public class Foo {}").unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "public class Foo {}");
+        let leftovers: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.file_name() != "Foo.cls")
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp files left behind: {leftovers:?}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_atomic_write_creates_missing_parent_folders() {
+        let dir = scratch_dir("atomic-parents");
+        let path = dir.join("force-app/main/default/classes/Bar.cls");
+        write_atomic(&path, b"public class Bar {}").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "public class Bar {}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_editor_reads_utf8_text() {
+        let dir = scratch_dir("read-text");
+        let path = dir.join("Foo.cls");
+        fs::write(&path, "// Grüße\npublic class Foo {}").unwrap();
+        assert_eq!(
+            read_editor_text(&path).unwrap(),
+            "// Grüße\npublic class Foo {}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_editor_refuses_binary_invalid_missing_and_huge_files() {
+        let dir = scratch_dir("read-refuse");
+
+        let binary = dir.join("logo.resource");
+        fs::write(&binary, [0x89, b'P', b'N', b'G', 0, 0, 0, 13]).unwrap();
+        assert!(read_editor_text(&binary).unwrap_err().contains("binary"));
+
+        let latin1 = dir.join("legacy.txt");
+        fs::write(&latin1, [b'c', b'a', b'f', 0xE9]).unwrap();
+        assert!(read_editor_text(&latin1).unwrap_err().contains("UTF-8"));
+
+        assert!(read_editor_text(&dir.join("gone.cls"))
+            .unwrap_err()
+            .contains("no longer exists"));
+
+        let huge = dir.join("huge.json");
+        fs::File::create(&huge)
+            .unwrap()
+            .set_len(MAX_EDITOR_FILE_BYTES + 1)
+            .unwrap();
+        assert!(read_editor_text(&huge).unwrap_err().contains("larger than"));
+
+        assert!(read_editor_text(&dir).unwrap_err().contains("folder"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /* ── Retrieve manifests ─────────────────────────────────────── */
+
+    #[test]
+    fn a_manifest_groups_members_by_type() {
+        let specs = vec![
+            "ApexClass:Foo".to_string(),
+            "ApexClass:Bar".to_string(),
+            "CustomObject".to_string(),
+            "Layout:Account-Account Layout".to_string(),
+        ];
+        let xml = package_xml(&specs, Some("65.0"));
+
+        assert!(xml.contains(
+            "<types>\n        <members>Bar</members>\n        <members>Foo</members>\n        <name>ApexClass</name>"
+        ));
+        assert!(xml.contains("<members>*</members>\n        <name>CustomObject</name>"));
+        assert!(xml.contains("<members>Account-Account Layout</members>"));
+        assert!(xml.contains("<version>65.0</version>"));
+    }
+
+    #[test]
+    fn a_manifest_escapes_xml_and_omits_an_unknown_version() {
+        let xml = package_xml(&["EmailTemplate:Folder/A&B <Draft>".to_string()], None);
+        assert!(xml.contains("<members>Folder/A&amp;B &lt;Draft&gt;</members>"));
+        assert!(!xml.contains("<version>"));
+    }
+}
+
+#[cfg(test)]
+mod integrity_tests {
+    use super::*;
+
+    /* ── Workspace resolution by id ─────────────────────────────── */
+
+    fn registry_with(id: &str, path: &Path) -> WorkspaceRegistry {
+        WorkspaceRegistry {
+            version: WORKSPACE_SCHEMA_VERSION,
+            active_id: Some("someone-else".to_string()),
+            workspaces: vec![WorkspaceEntry {
+                id: id.to_string(),
+                name: id.to_string(),
+                path: path.to_string_lossy().to_string(),
+                org_id: Some("00DA".to_string()),
+                last_org_id: None,
+                last_retrieved_org_id: None,
+                created_at: 0,
+            }],
+            notice: None,
+        }
+    }
+
+    #[test]
+    fn a_request_resolves_the_workspace_it_names_not_the_active_one() {
+        let dir = std::env::temp_dir().join(format!("forgesf-int-ws-{}", next_temp_suffix()));
+        fs::create_dir_all(&dir).unwrap();
+        let registry = registry_with("org-a", &dir);
+
+        assert_eq!(registered_workspace_path(&registry, "org-a").unwrap(), dir);
+        assert!(registered_workspace_path(&registry, "org-b")
+            .unwrap_err()
+            .contains("no longer registered"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_named_workspace_whose_folder_is_gone_is_an_error_not_a_fallback() {
+        let missing = std::env::temp_dir().join(format!("forgesf-int-gone-{}", next_temp_suffix()));
+        let registry = registry_with("org-a", &missing);
+        assert!(registered_workspace_path(&registry, "org-a")
+            .unwrap_err()
+            .contains("no longer exists"));
+    }
+
+    /* ── Retrieve warnings ──────────────────────────────────────── */
+
+    #[test]
+    fn missing_components_become_warnings_on_their_type() {
+        let stdout = br#"{"status":0,"result":{"status":"Succeeded","files":[
+            {"fullName":"Foo","type":"ApexClass","state":"Changed","filePath":"a"},
+            {"fullName":"Foo","type":"ApexClass","state":"Changed","filePath":"a-meta"}
+          ],"messages":[
+            {"fileName":"unpackaged/package.xml","problem":"Entity of type 'ApexClass' named 'Nope' cannot be found"},
+            {"fileName":"unpackaged/package.xml","problem":"Entity of type 'CustomObject' named 'Gone__c' cannot be found"}
+          ]}}"#;
+
+        let warnings = retrieve_warnings(stdout);
+        assert_eq!(
+            warnings["ApexClass"],
+            vec!["Entity of type 'ApexClass' named 'Nope' cannot be found"]
+        );
+        assert_eq!(warnings["CustomObject"].len(), 1);
+        assert_eq!(files_by_type(stdout)["ApexClass"], 2);
+    }
+
+    #[test]
+    fn a_single_message_object_and_failed_files_are_reported() {
+        let stdout = br#"{"status":0,"result":{"files":[
+            {"fullName":"Bar","type":"ApexClass","state":"Failed","error":"insufficient access"}
+          ],"messages":{"problem":"Something unrelated went wrong"}}}"#;
+
+        let warnings = retrieve_warnings(stdout);
+        assert_eq!(warnings["ApexClass"], vec!["Bar: insufficient access"]);
+        assert_eq!(warnings[""], vec!["Something unrelated went wrong"]);
+        // A file that failed was not retrieved.
+        assert!(!files_by_type(stdout).contains_key("ApexClass"));
+    }
+
+    #[test]
+    fn a_missing_component_is_reported_once() {
+        // What `sf project retrieve start --json` returns for a class the org
+        // does not have: the same problem as a message and as a failed file.
+        let stdout = br#"{"status":0,"result":{"files":[
+            {"fullName":"Probe","type":"ApexClass","state":"Failed","problemType":"Warning",
+             "error":"Entity of type 'ApexClass' named 'Probe' cannot be found"}
+          ],"messages":[{"fileName":"unpackaged/package.xml",
+             "problem":"Entity of type 'ApexClass' named 'Probe' cannot be found"}]}}"#;
+
+        assert_eq!(
+            retrieve_warnings(stdout)["ApexClass"],
+            vec!["Entity of type 'ApexClass' named 'Probe' cannot be found"]
+        );
+    }
+
+    #[test]
+    fn unattributed_warnings_only_land_on_a_type_retrieved_alone() {
+        let outcome = RetrieveBatchOutcome {
+            counts: HashMap::new(),
+            warnings: HashMap::from([("".to_string(), vec!["general".to_string()])]),
+            files: Vec::new(),
+        };
+        assert_eq!(outcome.warnings_for("ApexClass", true), vec!["general"]);
+        assert!(outcome.warnings_for("ApexClass", false).is_empty());
+    }
+
+    #[test]
+    fn the_type_is_read_from_a_problem_message() {
+        assert_eq!(
+            type_named_in_problem("Entity of type 'Report' named 'X/Y' cannot be found"),
+            Some("Report")
+        );
+        assert_eq!(type_named_in_problem("no type here"), None);
+    }
+
+    /* ── Login options ──────────────────────────────────────────── */
+
+    #[test]
+    fn login_urls_are_normalised_to_https() {
+        assert_eq!(
+            login_instance_url("https://test.salesforce.com/").unwrap(),
+            "https://test.salesforce.com"
+        );
+        assert_eq!(
+            login_instance_url("acme.my.salesforce.com").unwrap(),
+            "https://acme.my.salesforce.com"
+        );
+        assert_eq!(
+            login_instance_url("https://acme--uat.sandbox.my.salesforce.com:443").unwrap(),
+            "https://acme--uat.sandbox.my.salesforce.com:443"
+        );
+    }
+
+    #[test]
+    fn unsafe_or_malformed_login_urls_are_rejected() {
+        for bad in [
+            "",
+            "http://login.salesforce.com",
+            "https://",
+            "localhost",
+            "https://evil.com\" --jwt-key-file x",
+            "https://a.com:port",
+            "https://a.com/path?query=1",
+        ] {
+            assert!(login_instance_url(bad).is_err(), "accepted {bad:?}");
+        }
+    }
+
+    #[test]
+    fn aliases_are_restricted_to_safe_characters() {
+        assert_eq!(login_alias(" uat-sandbox ").unwrap(), "uat-sandbox");
+        assert!(login_alias("me@acme.com").is_ok());
+        for bad in [
+            "",
+            "two words",
+            "--set-default",
+            "semi;colon",
+            &"x".repeat(81),
+        ] {
+            assert!(login_alias(bad).is_err(), "accepted {bad:?}");
+        }
+    }
+
+    #[test]
+    fn login_arguments_include_only_the_chosen_options() {
+        assert_eq!(
+            login_args(None, None, false).unwrap(),
+            vec!["org", "login", "web", "--json"]
+        );
+        assert_eq!(
+            login_args(Some("test.salesforce.com"), Some("uat"), true).unwrap(),
+            vec![
+                "org",
+                "login",
+                "web",
+                "--json",
+                "--instance-url",
+                "https://test.salesforce.com",
+                "--alias",
+                "uat",
+                "--set-default"
+            ]
+        );
+        assert!(login_args(Some("http://x.com"), None, false).is_err());
+    }
+
+    /* ── In-folder metadata ─────────────────────────────────────── */
+
+    #[test]
+    fn in_folder_types_map_to_their_folder_types() {
+        assert_eq!(folder_type_for("Report"), Some("ReportFolder"));
+        assert_eq!(folder_type_for("EmailTemplate"), Some("EmailFolder"));
+        assert_eq!(folder_type_for("ApexClass"), None);
+        assert!(implicit_folders_for("Report").contains(&"unfiled$public"));
+        assert!(implicit_folders_for("Dashboard").is_empty());
     }
 }

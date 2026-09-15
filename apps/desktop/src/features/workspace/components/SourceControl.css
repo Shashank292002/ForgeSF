@@ -9,21 +9,10 @@
 .workspace-scm__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  height: 38px;
+  justify-content: flex-end;
+  height: 30px;
   padding: 0 10px 0 6px;
   flex-shrink: 0;
-}
-
-.workspace-scm__title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--fw-text-secondary);
 }
 
 .workspace-scm__tools {
@@ -54,21 +43,11 @@
   padding: 0 6px 12px;
 }
 
-.workspace-scm__changes {
-  padding: 6px 8px;
-}
-
-.workspace-scm__count {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--fw-text-secondary);
-}
-
 .workspace-scm__clean {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 4px 8px;
   color: var(--fw-success);
   font-size: 12.5px;
 }
@@ -181,6 +160,71 @@
   font-size: 12.5px;
 }
 
-.workspace-scm__body .spinning {
+.workspace-scm__body .spinning,
+.workspace-scm__tools .spinning {
   animation: forge-boot-spin 0.9s linear infinite;
+}
+
+.workspace-scm__section {
+  padding: 10px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fw-text-secondary);
+}
+
+.workspace-scm__note {
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fw-muted);
+}
+
+.workspace-scm__note.is-error {
+  color: var(--fw-error);
+}
+
+.workspace-scm__marker.is-m {
+  color: var(--fw-warning);
+}
+
+.workspace-scm__marker.is-a {
+  color: var(--fw-success);
+}
+
+.workspace-scm__marker.is-d {
+  color: var(--fw-error);
+}
+
+.workspace-scm__file:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.workspace-scm__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px 0;
+  font-size: 11.5px;
+  color: var(--fw-muted);
+}
+
+.workspace-scm__link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fw-info);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.workspace-scm__link:hover {
+  text-decoration: underline;
+}
+
+.workspace-scm__deploy + .workspace-scm__deploy {
+  margin-top: 8px;
 }

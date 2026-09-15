@@ -4,4 +4,9 @@ import type { WorkspaceEntry } from "./WorkspaceEntry";
 /**
  * The persisted registry.
  */
-export type WorkspaceRegistry = { version: number, activeId: string | null, workspaces: Array<WorkspaceEntry>, };
+export type WorkspaceRegistry = { version: number, activeId: string | null, workspaces: Array<WorkspaceEntry>, 
+/**
+ * Set on a response when the saved list could not be read and a new one
+ * was started. Never stored: `write_registry_file` strips it.
+ */
+notice?: string | null, };

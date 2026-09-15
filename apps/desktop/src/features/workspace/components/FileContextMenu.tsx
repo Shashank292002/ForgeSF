@@ -1,159 +1,235 @@
-import { useEffect, useRef } from "react";
 import {
+  ClipboardPaste,
+  Copy,
+  CopyPlus,
   Download,
   FilePlus2,
   FolderPlus,
+  FolderSearch,
   GitCompare,
+  Link,
   Pencil,
   Rocket,
+  Scissors,
+  ShieldCheck,
   Trash2,
 } from "lucide-react";
+
+import { Menu, MenuItem, MenuSeparator } from "../../../components/ui";
+import { getParentPath } from "../lib/workspaceUtils";
+
+/** What the explorer does for each entry; the menu only decides what shows. */
+export interface FileMenuActions {
+  deploy: (paths: string[]) => void;
+  validate: (paths: string[]) => void;
+  retrieve: (paths: string[]) => void;
+  diff: (path: string) => void;
+  newFile: (folder: string) => void;
+  newFolder: (folder: string) => void;
+  cut: (paths: string[]) => void;
+  copy: (paths: string[]) => void;
+  paste: (folder: string) => void;
+  duplicate: (paths: string[]) => void;
+  copyPath: (paths: string[]) => void;
+  copyRelativePath: (paths: string[]) => void;
+  reveal: (path: string) => void;
+  rename: (path: string) => void;
+  delete: (paths: string[]) => void;
+}
 
 interface FileContextMenuProps {
   x: number;
   y: number;
-  path: string;
-  /** Folder actions are labelled differently and skip file-only entries. */
-  type: "file" | "folder";
+  /** The items acted on: the whole selection when the clicked row is in it. */
+  paths: string[];
+  /** The row clicked, or null for the empty space below the rows. */
+  target: { path: string; type: "file" | "folder" } | null;
   /** Org-backed actions are disabled without a connection. */
   hasOrg: boolean;
+  /** Every item is inside a package directory, so it is metadata. */
+  deployable: boolean;
+  canPaste: boolean;
   onClose: () => void;
-  onDeploy: (path: string) => void;
-  onRetrieve: (path: string) => void;
-  onDiff: (path: string) => void;
-  onNewFile: (path: string) => void;
-  onNewFolder: (path: string) => void;
-  onRename: (path: string) => void;
-  onDelete: (path: string) => void;
+  actions: FileMenuActions;
 }
+
+const REVEAL_LABEL =
+  typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent)
+    ? "Reveal in Finder"
+    : typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)
+      ? "Reveal in File Explorer"
+      : "Open Containing Folder";
 
 export default function FileContextMenu({
   x,
   y,
-  path,
-  type,
+  paths,
+  target,
   hasOrg,
+  deployable,
+  canPaste,
   onClose,
-  onDeploy,
-  onRetrieve,
-  onDiff,
-  onNewFile,
-  onNewFolder,
-  onRename,
-  onDelete,
+  actions,
 }: FileContextMenuProps) {
-  const ref = useRef<HTMLDivElement>(null);
+  const count = paths.length;
+  // Single-item actions (rename, diff) only apply to a lone clicked item.
+  const single = count === 1 ? target : null;
+  // New items and pastes go into the clicked folder, or beside a clicked file.
+  const folder = target
+    ? target.type === "folder"
+      ? target.path
+      : getParentPath(target.path)
+    : "";
 
-  /* Keep the menu inside the viewport and close on outside click / Escape. */
-  useEffect(() => {
-    const menu = ref.current;
-    if (menu) {
-      const rect = menu.getBoundingClientRect();
-      const left = Math.min(x, window.innerWidth - rect.width - 8);
-      const top = Math.min(y, window.innerHeight - rect.height - 8);
-      menu.style.left = `${Math.max(8, left)}px`;
-      menu.style.top = `${Math.max(8, top)}px`;
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!menu?.contains(event.target as Node)) onClose();
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-
-    window.addEventListener("mousedown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [x, y, onClose]);
-
-  const isFolder = type === "folder";
-
-  const run = (action: () => void) => {
-    action();
-    onClose();
-  };
+  // Deploy, validate and retrieve make no sense for README.md or
+  // sfdx-project.json: offering them only produced a CLI error.
+  const orgProblem = !hasOrg
+    ? "Connect an org first"
+    : deployable
+      ? undefined
+      : "Only metadata inside a package directory can be deployed or retrieved";
+  const noun =
+    count > 1 ? ` ${count} Items` : single?.type === "folder" ? " Folder" : "";
 
   return (
-    <div
-      ref={ref}
+    <Menu
       className="forge-ws__context-menu"
-      role="menu"
-      aria-label="Explorer item actions"
+      label={
+        count > 1
+          ? `Actions for ${count} items`
+          : target
+            ? "Explorer item actions"
+            : "Workspace actions"
+      }
+      at={{ x, y }}
+      onClose={onClose}
     >
-      <button
-        type="button"
-        role="menuitem"
-        disabled={!hasOrg}
-        title={hasOrg ? undefined : "Connect an org first"}
-        onClick={() => run(() => onDeploy(path))}
-      >
-        <Rocket size={14} />
-        <span>{isFolder ? "Deploy Folder" : "Deploy"}</span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        disabled={!hasOrg}
-        title={hasOrg ? undefined : "Connect an org first"}
-        onClick={() => run(() => onRetrieve(path))}
-      >
-        <Download size={14} />
-        <span>{isFolder ? "Retrieve Folder" : "Retrieve"}</span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        disabled={!hasOrg}
-        title={hasOrg ? undefined : "Connect an org first"}
-        onClick={() => run(() => onDiff(path))}
-      >
-        <GitCompare size={14} />
-        <span>Diff Check</span>
-      </button>
+      {count > 0 && (
+        <>
+          <MenuItem
+            disabled={Boolean(orgProblem)}
+            title={orgProblem}
+            onSelect={() => actions.deploy(paths)}
+          >
+            <Rocket size={14} />
+            <span>Deploy{noun}</span>
+          </MenuItem>
+          <MenuItem
+            disabled={Boolean(orgProblem)}
+            title={
+              orgProblem ??
+              "Pick an org and test level, then check the deploy without changing the org"
+            }
+            onSelect={() => actions.validate(paths)}
+          >
+            <ShieldCheck size={14} />
+            <span>Validate{noun}…</span>
+          </MenuItem>
+          <MenuItem
+            disabled={Boolean(orgProblem)}
+            title={orgProblem}
+            onSelect={() => actions.retrieve(paths)}
+          >
+            <Download size={14} />
+            <span>Retrieve{noun}</span>
+          </MenuItem>
+          {single && (
+            <MenuItem
+              disabled={Boolean(orgProblem)}
+              title={orgProblem}
+              onSelect={() => actions.diff(single.path)}
+            >
+              <GitCompare size={14} />
+              <span>Diff Check</span>
+            </MenuItem>
+          )}
 
-      <div className="forge-ws__context-menu__sep" role="separator" />
+          <MenuSeparator className="forge-ws__context-menu__sep" />
+        </>
+      )}
 
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => run(() => onNewFile(path))}
-      >
+      <MenuItem onSelect={() => actions.newFile(folder)}>
         <FilePlus2 size={14} />
         <span>New File…</span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => run(() => onNewFolder(path))}
-      >
+      </MenuItem>
+      <MenuItem onSelect={() => actions.newFolder(folder)}>
         <FolderPlus size={14} />
         <span>New Folder…</span>
-      </button>
-      <div className="forge-ws__context-menu__sep" role="separator" />
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => run(() => onRename(path))}
+      </MenuItem>
+
+      <MenuSeparator className="forge-ws__context-menu__sep" />
+
+      {count > 0 && (
+        <>
+          <MenuItem onSelect={() => actions.cut(paths)}>
+            <Scissors size={14} />
+            <span>Cut</span>
+            <kbd>Ctrl+X</kbd>
+          </MenuItem>
+          <MenuItem onSelect={() => actions.copy(paths)}>
+            <Copy size={14} />
+            <span>Copy</span>
+            <kbd>Ctrl+C</kbd>
+          </MenuItem>
+        </>
+      )}
+      <MenuItem
+        disabled={!canPaste}
+        title={canPaste ? undefined : "Cut or copy something first"}
+        onSelect={() => actions.paste(folder)}
       >
-        <Pencil size={14} />
-        <span>Rename…</span>
-        <kbd>F2</kbd>
-      </button>
-      <div className="forge-ws__context-menu__sep" role="separator" />
-      <button
-        type="button"
-        role="menuitem"
-        className="is-danger"
-        onClick={() => run(() => onDelete(path))}
-      >
-        <Trash2 size={14} />
-        <span>Delete</span>
-        <kbd>Del</kbd>
-      </button>
-    </div>
+        <ClipboardPaste size={14} />
+        <span>Paste</span>
+        <kbd>Ctrl+V</kbd>
+      </MenuItem>
+      {count > 0 && (
+        <MenuItem onSelect={() => actions.duplicate(paths)}>
+          <CopyPlus size={14} />
+          <span>Duplicate</span>
+        </MenuItem>
+      )}
+
+      <MenuSeparator className="forge-ws__context-menu__sep" />
+
+      <MenuItem onSelect={() => actions.copyPath(paths)}>
+        <Link size={14} />
+        <span>Copy Path</span>
+        <kbd>Shift+Alt+C</kbd>
+      </MenuItem>
+      {count > 0 && (
+        <MenuItem onSelect={() => actions.copyRelativePath(paths)}>
+          <Link size={14} />
+          <span>Copy Relative Path</span>
+        </MenuItem>
+      )}
+      {count <= 1 && (
+        <MenuItem onSelect={() => actions.reveal(single?.path ?? "")}>
+          <FolderSearch size={14} />
+          <span>{REVEAL_LABEL}</span>
+          <kbd>Shift+Alt+R</kbd>
+        </MenuItem>
+      )}
+
+      {count > 0 && (
+        <>
+          <MenuSeparator className="forge-ws__context-menu__sep" />
+          {single && (
+            <MenuItem onSelect={() => actions.rename(single.path)}>
+              <Pencil size={14} />
+              <span>Rename…</span>
+              <kbd>F2</kbd>
+            </MenuItem>
+          )}
+          <MenuItem
+            className="is-danger"
+            onSelect={() => actions.delete(paths)}
+          >
+            <Trash2 size={14} />
+            <span>Delete{count > 1 ? ` ${count} Items` : ""}</span>
+            <kbd>Del</kbd>
+          </MenuItem>
+        </>
+      )}
+    </Menu>
   );
 }

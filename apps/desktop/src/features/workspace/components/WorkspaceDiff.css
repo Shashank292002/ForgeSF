@@ -116,6 +116,21 @@
   color: var(--fw-text-secondary);
 }
 
+/* Problems the retrieve reported, e.g. components the org does not have. */
+.fw-diff__warnings {
+  list-style: none;
+  margin: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--fw-border-soft);
+  font-size: 12px;
+  color: var(--fw-warning);
+  overflow-wrap: anywhere;
+}
+
+.fw-diff__warnings li + li {
+  margin-top: 3px;
+}
+
 /* ── Changed-file list ──────────────────────────────────────────── */
 .fw-diff__list {
   flex: 1;

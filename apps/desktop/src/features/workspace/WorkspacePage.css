@@ -339,7 +339,9 @@
 @media (max-width: 860px) {
   /* Below this the activity bar's labels and the status bar's right-hand
      items are noise; keep the editor usable instead. */
-  .forge-ws .workspace-statusbar__right .workspace-statusbar__item:not(:last-child) {
+  .forge-ws
+    .workspace-statusbar__right
+    .workspace-statusbar__item:not(:last-child) {
     display: none;
   }
 

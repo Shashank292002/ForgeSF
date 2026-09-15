@@ -15,6 +15,7 @@ import { useWorkspaceStore } from "../workspace/store/workspaceStore";
 
 import { useOrganizationStore } from "../../store/orgStore";
 import { Card, Badge, Button } from "../../components/ui";
+import { confirm } from "../../components/ui/Confirm/confirm";
 
 import styles from "./SettingsPage.module.css";
 
@@ -197,18 +198,16 @@ export default function SettingsPage() {
                       type="button"
                       className={styles.workspaceRemove}
                       title="Forget this workspace (files are not deleted)"
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `Remove "${workspace.name}" from ForgeSF?
-
-` +
-                              "The folder and its files stay on disk — only this " +
-                              "entry is forgotten.",
-                          )
-                        ) {
-                          void removeWorkspace(workspace.id);
-                        }
+                      aria-label={`Remove ${workspace.name} from ForgeSF`}
+                      onClick={async () => {
+                        const proceed = await confirm({
+                          title: `Remove "${workspace.name}" from ForgeSF?`,
+                          message:
+                            "The folder and its files stay on disk — only this entry is forgotten.",
+                          details: [workspace.path],
+                          confirmLabel: "Remove",
+                        });
+                        if (proceed) void removeWorkspace(workspace.id);
                       }}
                     >
                       <Trash2 size={14} />

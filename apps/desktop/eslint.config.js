@@ -9,7 +9,9 @@ export default defineConfig([
   // `workspace/` holds the developer's own retrieved Salesforce source, not
   // app code: its LWC decorators do not parse under this config, and the
   // directory is gitignored anyway.
-  globalIgnores(["dist", "workspace", "public/fonts"]),
+  // `src-tauri/target` holds Rust build output, including minified copies of
+  // the bundled frontend that a release build generates.
+  globalIgnores(["dist", "workspace", "public/fonts", "src-tauri/target"]),
   {
     files: ["**/*.{ts,tsx}"],
     extends: [

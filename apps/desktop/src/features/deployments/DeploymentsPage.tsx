@@ -1,316 +1,387 @@
-import { useState, useEffect, useCallback } from "react";
-import {
-  Rocket,
-  GitCommit,
-  GitBranch,
-  Terminal,
-  RefreshCw,
-  Sparkles,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { AlertTriangle, Rocket, X } from "lucide-react";
+
+import type { DeployRecord, DeployScope } from "@/types/generated";
+import { useNow } from "../../hooks/useNow";
 import { useOrganizationStore } from "../../store/orgStore";
-import { useMetadataStore } from "../../store/metadataStore";
-import {
-  listMetadataTypes,
-  deployWorkspace,
-  deployQuick,
-} from "../../services/tauri";
-import { Badge, Card } from "../../components/ui";
+import { useWorkspaceStore } from "../workspace/store/workspaceStore";
+import { listMetadataTypes } from "../../services/tauri";
+import { Badge } from "../../components/ui";
 import OrgConnector from "./components/OrgConnector";
 import MetadataSelector from "./components/MetadataSelector";
-import DeploymentPipeline from "./components/DeploymentPipeline";
+import DeployForm, { type DeployFormValue } from "./components/DeployForm";
+import DeployJobPanel from "./components/DeployJobPanel";
 import DeploymentHistory from "./components/DeploymentHistory";
-import type {
-  PipelineStep,
-  PipelineStatus,
-  DeploymentRecord,
-  DeployPhase,
-} from "./types";
+import { useDeployJobsStore } from "./store/deployJobsStore";
+import { succeeded } from "./lib/deployStatus";
+import {
+  TEST_LEVELS,
+  deployFormProblem,
+  jobKind,
+  parseTestNames,
+  scopeLabel,
+} from "./lib/deployForm";
+import { workspaceOrgMismatchPrompt } from "../workspace/lib/deployGuards";
+import {
+  isProtectedOrg,
+  protectionPrompt,
+} from "../org-manager/lib/orgProtection";
+import { confirm } from "../../components/ui/Confirm/confirm";
+import type { MetadataType } from "../metadata/types";
 import type { Organization } from "../org-manager/types";
 import styles from "./DeploymentsPage.module.css";
 
-const VERSION_PREFIX = "v";
-let versionCounter = 1;
-function nextVersion(): string {
-  return `${VERSION_PREFIX}${versionCounter++}.0.0`;
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
+const INITIAL_FORM: DeployFormValue = {
+  scope: "workspace",
+  testLevel: "",
+  testsInput: "",
+  ignoreWarnings: false,
+};
+
+/** What the explorer's "Validate…" sends along when it opens this page. */
+interface DeploymentsLocationState {
+  deployPaths?: string[];
+}
+
+function pathsFrom(state: unknown): string[] {
+  const paths = (state as DeploymentsLocationState | null)?.deployPaths;
+  return Array.isArray(paths)
+    ? paths.filter((path): path is string => typeof path === "string")
+    : [];
+}
+
+/** Refreshes Pending Changes once a deploy that committed files finishes. */
+function refreshChangesWhenDone(record: DeployRecord) {
+  if (record.checkOnly) return;
+  void useDeployJobsStore
+    .getState()
+    .watch(record)
+    .then((report) => {
+      if (report && succeeded(report.status)) {
+        void useWorkspaceStore.getState().loadChanges();
+      }
+    });
+}
+
+/**
+ * Validates and deploys the local workspace to an org, as background jobs.
+ *
+ * Jobs start with `--async` and are followed by polling, so a deploy longer
+ * than the old ten-minute wait is no longer reported as failed while it keeps
+ * running; it can be cancelled, its component and test results are shown,
+ * and a successful validation can be quick deployed later — across restarts.
+ */
 export default function DeploymentsPage() {
   const organizations = useOrganizationStore((s) => s.organizations);
-  const [sourceOrg, setSourceOrg] = useState<Organization | null>(null);
-  const [targetOrg, setTargetOrg] = useState<Organization | null>(null);
+  const selectedOrganization = useOrganizationStore(
+    (s) => s.selectedOrganization,
+  );
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const openWorkspaceId = useWorkspaceStore((s) => s.openWorkspaceId);
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  const changes = useWorkspaceStore((s) => s.changes);
+  const changesLoading = useWorkspaceStore((s) => s.changesLoading);
+  const changesError = useWorkspaceStore((s) => s.changesError);
+  const loadChanges = useWorkspaceStore((s) => s.loadChanges);
 
-  // One shared selection model with the retrieve flow; `search` and `loading`
-  // are this screen's own UI state and no longer live in the global store.
-  const metadataTypes = useMetadataStore((s) => s.metadata);
-  const selectedMetadata = useMetadataStore((s) => s.selectedTypes);
-  const setMetadata = useMetadataStore((s) => s.setMetadata);
-  const toggleMetadata = useMetadataStore((s) => s.toggleType);
-  const clearSelection = useMetadataStore((s) => s.clearTypes);
+  const history = useDeployJobsStore((s) => s.history);
+  const reports = useDeployJobsStore((s) => s.reports);
+  const reportErrors = useDeployJobsStore((s) => s.errors);
+  const selectedJobId = useDeployJobsStore((s) => s.selectedJobId);
+  const selectJob = useDeployJobsStore((s) => s.select);
+  const loadReport = useDeployJobsStore((s) => s.loadReport);
 
+  // The folder shown in the editor is the one deployed.
+  const workspaceId = openWorkspaceId ?? activeWorkspaceId;
+  const workspace = workspaces.find((item) => item.id === workspaceId) ?? null;
+  const workspaceOrg =
+    organizations.find((org) => org.id === workspace?.orgId) ?? null;
+
+  // Defaults to the selected org — the one the open workspace follows.
+  const [targetId, setTargetId] = useState<string | null>(null);
+  const targetOrg =
+    organizations.find(
+      (org) => org.id === (targetId ?? selectedOrganization?.id),
+    ) ?? null;
+
+  // Files chosen in the explorer arrive preselected, as their own scope.
+  const location = useLocation();
+  const [selectedPaths, setSelectedPaths] = useState<string[]>(() =>
+    pathsFrom(location.state),
+  );
+  const [form, setForm] = useState<DeployFormValue>(() =>
+    selectedPaths.length > 0
+      ? { ...INITIAL_FORM, scope: "paths" }
+      : INITIAL_FORM,
+  );
+  const updateForm = (patch: Partial<DeployFormValue>) =>
+    setForm((current) => ({ ...current, ...patch }));
+  const clearSelectedPaths = () => {
+    setSelectedPaths([]);
+    setForm((current) =>
+      current.scope === "paths" ? { ...current, scope: "workspace" } : current,
+    );
+  };
+
+  // Local to this page: the selection used to live in the store shared with
+  // the retrieve wizard, so choices made in one leaked into the other.
+  const [metadataTypes, setMetadataTypes] = useState<MetadataType[]>([]);
+  const [selectedMetadata, setSelectedMetadata] = useState<string[]>([]);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [typesLoading, setTypesLoading] = useState(false);
+  const [typesError, setTypesError] = useState<string | null>(null);
 
-  const [phase, setPhase] = useState<DeployPhase>("idle");
-  const [logs, setLogs] = useState("");
-  const [deployVersion, setDeployVersion] = useState("");
-  const [commitMessage, setCommitMessage] = useState("");
-  const [history, setHistory] = useState<DeploymentRecord[]>([]);
-  const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>([
-    {
-      id: "validate",
-      label: "Validate",
-      description: "Run deployment validation (check-only)",
-      status: "pending",
-    },
-    {
-      id: "build",
-      label: "Build Package",
-      description: "Assemble metadata into deployment package",
-      status: "pending",
-    },
-    {
-      id: "deploy",
-      label: "Deploy",
-      description: "Deploy metadata to target org",
-      status: "pending",
-    },
-    {
-      id: "verify",
-      label: "Verify",
-      description: "Verify deployment success in target org",
-      status: "pending",
-    },
-  ]);
-  const [currentStep, setCurrentStep] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
-  // Loads the source org's metadata types. The `cancelled` flag drops a
-  // superseded org's response, and the failure is surfaced in the console
-  // instead of the old `.catch(() => {})`, which showed an empty selector with
-  // no explanation.
+  const [starting, setStarting] = useState<"validate" | "deploy" | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [acting, setActing] = useState<"cancel" | "quick" | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const now = useNow(
+    1000,
+    history.some((record) => !record.done),
+  );
+
+  // History is loaded at startup; reading it again picks up anything a
+  // background poll wrote since.
   useEffect(() => {
-    if (!sourceOrg) return;
+    void useDeployJobsStore
+      .getState()
+      .loadHistory()
+      .catch(() => {});
+    void loadChanges();
+  }, [loadChanges]);
+
+  // The type list is the target org's, and only needed for that scope.
+  const targetUsername = targetOrg?.username;
+  const wantTypes = form.scope === "metadata";
+  useEffect(() => {
+    if (!targetUsername || !wantTypes) return;
 
     let cancelled = false;
-    const { username, alias } = sourceOrg;
-
     const loadTypes = async () => {
-      setLoading(true);
+      setTypesLoading(true);
+      setTypesError(null);
       try {
-        const types = await listMetadataTypes(username);
-        // setMetadata clears the selection itself when the org changed.
-        if (!cancelled) setMetadata(username, types);
+        const types = await listMetadataTypes(targetUsername);
+        if (!cancelled) setMetadataTypes(types);
       } catch (error) {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : String(error);
-        setLogs(
-          (p) =>
-            p +
-            `
-[${new Date().toLocaleTimeString()}] ⚠ Could not load metadata types from ${alias}: ${message}
-`,
-        );
+        if (!cancelled) setTypesError(errorMessage(error));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setTypesLoading(false);
       }
     };
-
     void loadTypes();
 
     return () => {
       cancelled = true;
     };
-  }, [sourceOrg, setMetadata]);
+  }, [targetUsername, wantTypes]);
 
-  const handleSwap = useCallback(() => {
-    const temp = sourceOrg;
-    setSourceOrg(targetOrg);
-    setTargetOrg(temp);
-  }, [sourceOrg, targetOrg]);
+  const selectedRecord =
+    history.find((record) => record.jobId === selectedJobId) ??
+    history[0] ??
+    null;
+  const selectedReport = selectedRecord
+    ? reports[selectedRecord.jobId]
+    : undefined;
+  const selectedError = selectedRecord
+    ? reportErrors[selectedRecord.jobId]
+    : undefined;
 
-  const updateStepStatus = (stepId: string, status: PipelineStatus) => {
-    setPipelineSteps((prev) =>
-      prev.map((s) => (s.id === stepId ? { ...s, status } : s)),
-    );
+  // A job finished in an earlier session has no results in memory yet.
+  useEffect(() => {
+    if (!selectedRecord || selectedReport || selectedError) return;
+    void loadReport(selectedRecord);
+  }, [selectedRecord, selectedReport, selectedError, loadReport]);
+
+  const orgFor = useCallback(
+    (username: string): Organization | undefined =>
+      organizations.find((org) => org.username === username),
+    [organizations],
+  );
+  const orgAlias = useCallback(
+    (username: string) => orgFor(username)?.alias ?? username,
+    [orgFor],
+  );
+
+  const changedPaths = useMemo(
+    () => (changes ? [...changes.modified, ...changes.added] : []),
+    [changes],
+  );
+  const tests = useMemo(
+    () => parseTestNames(form.testsInput),
+    [form.testsInput],
+  );
+
+  const problemFor = (checkOnly: boolean): string | null => {
+    if (!workspace) return "Open a workspace first.";
+    if (!targetOrg) return "Pick a target org.";
+    return deployFormProblem({
+      checkOnly,
+      testLevel: form.testLevel,
+      tests,
+      scope: form.scope,
+      changedCount: changes?.baselineAt != null ? changedPaths.length : 0,
+      pathsCount: selectedPaths.length,
+      metadataCount: selectedMetadata.length,
+    });
+  };
+  const validateProblem = problemFor(true);
+  const deployProblem = problemFor(false);
+
+  const submit = async (checkOnly: boolean) => {
+    if (!workspace || !targetOrg || problemFor(checkOnly)) return;
+    setNotice(null);
+
+    const scope: DeployScope =
+      form.scope === "workspace"
+        ? { kind: "workspace" }
+        : form.scope === "changed"
+          ? { kind: "paths", paths: changedPaths }
+          : form.scope === "paths"
+            ? { kind: "paths", paths: selectedPaths }
+            : { kind: "metadata", metadata: selectedMetadata };
+    const label = scopeLabel(form.scope, {
+      changed: changedPaths.length,
+      metadata: selectedMetadata,
+      paths: selectedPaths,
+    });
+
+    // A validation commits nothing, so only a real deploy asks first.
+    if (!checkOnly) {
+      // Another org's folder is a legitimate promotion (sandbox → production),
+      // but it is also what a stale selection looks like: always name it.
+      const mismatch = workspaceOrgMismatchPrompt(
+        workspace,
+        targetOrg,
+        organizations,
+      );
+      if (mismatch && !(await confirm(mismatch))) return;
+
+      const level =
+        TEST_LEVELS.find((item) => item.value === form.testLevel)?.label ??
+        "Org default";
+      const production = isProtectedOrg(targetOrg);
+      const confirmed = await confirm({
+        title: `Deploy to ${targetOrg.alias}?`,
+        message: production
+          ? "This writes metadata to a live production environment."
+          : "This writes metadata to the org.",
+        details: [
+          `What:  ${label}`,
+          `From:  ${workspace.name}`,
+          `To:    ${targetOrg.alias} (${targetOrg.orgType}) · ${targetOrg.username}`,
+          `Tests: ${level}`,
+        ],
+        confirmLabel: "Deploy",
+        tone: production ? "danger" : "default",
+      });
+      if (!confirmed) return;
+    }
+
+    if (!(await useWorkspaceStore.getState().saveBeforeDeploy())) return;
+
+    setStarting(checkOnly ? "validate" : "deploy");
+    try {
+      const record = await useDeployJobsStore.getState().start({
+        username: targetOrg.username,
+        workspaceId: workspace.id,
+        options: {
+          scope,
+          checkOnly,
+          testLevel: form.testLevel || null,
+          tests: form.testLevel === "RunSpecifiedTests" ? tests : [],
+          ignoreWarnings: form.ignoreWarnings,
+          label,
+        },
+      });
+      setActionError(null);
+      refreshChangesWhenDone(record);
+    } catch (error) {
+      setNotice(errorMessage(error));
+    } finally {
+      setStarting(null);
+    }
   };
 
-  const runDeployment = async () => {
-    if (!sourceOrg || !targetOrg || selectedMetadata.length === 0) return;
+  const cancelJob = async (record: DeployRecord) => {
+    const proceed = await confirm({
+      title: `Cancel this ${jobKind(record).toLowerCase()}?`,
+      message:
+        `"${record.label}" on ${orgAlias(record.username)} stops at the next ` +
+        "step. Components already written stay in the org until the job rolls back.",
+      confirmLabel: "Cancel job",
+      cancelLabel: "Keep running",
+      tone: "danger",
+    });
+    if (!proceed) return;
 
-    // Deploying an org onto itself is never intended and is destructive.
-    if (sourceOrg.id === targetOrg.id) {
-      setLogs(
-        (p) =>
-          p +
-          `\n[${new Date().toLocaleTimeString()}] ⚠ Source and target are the same org (${targetOrg.alias}). Pick a different target.\n`,
+    setActing("cancel");
+    setActionError(null);
+    try {
+      await useDeployJobsStore.getState().cancel(record);
+    } catch (error) {
+      setActionError(errorMessage(error));
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const quickDeploy = async (validation: DeployRecord) => {
+    const org = orgFor(validation.username);
+    if (!org) {
+      setActionError(
+        `Connect ${validation.username} again to quick deploy this validation.`,
       );
       return;
     }
 
-    // The deploy below writes to a real org. Name it explicitly — the org
-    // cards cannot be trusted to distinguish production from sandbox yet.
-    const confirmed = window.confirm(
-      `Deploy the local workspace to:\n\n` +
-        `  ${targetOrg.alias}\n  ${targetOrg.username}\n  ${targetOrg.instanceUrl}\n\n` +
-        `This writes metadata to that org. Continue?`,
-    );
-    if (!confirmed) return;
-
-    setRunning(true);
-    setLogs("");
-    const version = deployVersion || nextVersion();
-    setDeployVersion(version);
-
-    setPipelineSteps((prev) =>
-      prev.map((s) => ({
-        ...s,
-        status: s.id === "validate" ? "active" : "pending",
-      })),
-    );
-    setPhase("validating");
-
-    // Tracked locally, not via `currentStep`: the state setter does not update
-    // the value captured by this closure, so the catch block used to blame
-    // whichever step the closure was created with (always "deploy").
-    let step = "validate";
-    const startedAt = Date.now();
-    const stamp = () => `[${new Date().toLocaleTimeString()}]`;
-
-    const record = (status: DeploymentRecord["status"]) => {
-      const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
-      setHistory((prev) => [
-        {
-          id: `dep-${Date.now()}`,
-          version,
-          message: commitMessage || `Deploy ${selectedMetadata.length} types`,
-          author: sourceOrg.alias,
-          sourceOrg: sourceOrg.alias,
-          targetOrg: targetOrg.alias,
-          status,
-          metadataCount: selectedMetadata.length,
-          timestamp: new Date().toLocaleString(),
-          duration: `${seconds}s`,
-        },
-        ...prev,
-      ]);
+    const prompt = protectionPrompt(
+      org,
+      "Quick deploy the validated components",
+      "Quick deploy",
+    ) ?? {
+      title: `Quick deploy to ${org.alias}?`,
+      message: `"${validation.label}" is committed to the org without running its tests again.`,
+      confirmLabel: "Quick deploy",
     };
+    if (!(await confirm(prompt))) return;
 
+    setActing("quick");
+    setActionError(null);
     try {
-      // ── Validate ──────────────────────────────────────────────
-      // Runs `sf project deploy validate`, which registers the deployment
-      // server-side and hands back a job id.
-      setCurrentStep(step);
-      updateStepStatus("validate", "active");
-      setLogs(
-        (p) =>
-          p +
-          `${stamp()} 🔍 Validating ${selectedMetadata.length} metadata type(s) against ${targetOrg.alias}...\n`,
-      );
-
-      const validation = await deployWorkspace(
-        targetOrg.username,
-        true,
-        selectedMetadata,
-      );
-      setLogs((p) => p + validation.summary + "\n");
-      updateStepStatus("validate", "success");
-      setLogs((p) => p + `${stamp()} ✅ Validation passed.\n\n`);
-
-      // ── Prepare ───────────────────────────────────────────────
-      // No fake build step: either the validation produced a promotable job
-      // id, or the deploy below has to upload from scratch.
-      step = "build";
-      setPhase("building");
-      setCurrentStep(step);
-      updateStepStatus("build", "active");
-      setLogs(
-        (p) =>
-          p +
-          (validation.jobId
-            ? `${stamp()} 📦 Validated deployment ${validation.jobId} is ready to promote.\n\n`
-            : `${stamp()} 📦 No promotable job id returned — the deploy will upload the source again.\n\n`),
-      );
-      updateStepStatus("build", "success");
-
-      // ── Deploy ────────────────────────────────────────────────
-      step = "deploy";
-      setPhase("deploying");
-      setCurrentStep(step);
-      updateStepStatus("deploy", "active");
-      setLogs(
-        (p) =>
-          p +
-          `${stamp()} 🚀 ${
-            validation.jobId ? "Promoting validated deployment" : "Deploying"
-          } to ${targetOrg.alias}...\n`,
-      );
-
-      const deployment = validation.jobId
-        ? await deployQuick(targetOrg.username, validation.jobId)
-        : await deployWorkspace(targetOrg.username, false, selectedMetadata);
-
-      setLogs((p) => p + deployment.summary + "\n");
-      updateStepStatus("deploy", "success");
-
-      // ── Verify ────────────────────────────────────────────────
-      // The CLI already waited for the deploy to reach a terminal state, so
-      // this reports that state instead of sleeping and claiming success.
-      step = "verify";
-      setPhase("verifying");
-      setCurrentStep(step);
-      updateStepStatus("verify", "active");
-
-      const succeeded = /^(Succeeded|SucceededPartial)$/i.test(
-        deployment.status,
-      );
-      setLogs(
-        (p) => p + `${stamp()} 🔎 Target org reports: ${deployment.status}\n`,
-      );
-
-      if (!succeeded) {
-        throw new Error(
-          `Deployment finished with status "${deployment.status}".`,
-        );
-      }
-
-      updateStepStatus("verify", "success");
-      setPhase("done");
-      record("success");
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      setLogs((p) => p + `\n❌ ${message}\n`);
-      updateStepStatus(step, "failed");
-      setPhase("error");
-      record("failed");
+      const record = await useDeployJobsStore
+        .getState()
+        .quickDeploy(validation);
+      refreshChangesWhenDone(record);
+    } catch (error) {
+      setActionError(errorMessage(error));
     } finally {
-      setRunning(false);
-      setCurrentStep(null);
+      setActing(null);
     }
   };
 
-  const handleRollback = (id: string) => {
-    setLogs(
-      (p) =>
-        p + `\n[${new Date().toLocaleTimeString()}] 🔄 Rollback for ${id}...\n`,
-    );
+  const handleTargetChange = (org: Organization | null) => {
+    setTargetId(org?.id ?? "");
+    setSelectedMetadata([]);
   };
 
-  const handleViewDetails = (id: string) => {
-    setLogs(
-      (p) =>
-        p + `\n[${new Date().toLocaleTimeString()}] 📋 Details for ${id}...\n`,
+  const toggleMetadata = (xmlName: string) =>
+    setSelectedMetadata((current) =>
+      current.includes(xmlName)
+        ? current.filter((item) => item !== xmlName)
+        : [...current, xmlName],
     );
-  };
 
-  const canDeploy =
-    sourceOrg &&
-    targetOrg &&
-    sourceOrg.id !== targetOrg.id &&
-    selectedMetadata.length > 0 &&
-    !running;
+  const running = history.filter((record) => !record.done).length;
 
   return (
     <div className={styles.page}>
-      {/* Page Header */}
       <header className={styles.header}>
         <div className={styles.headerLeft}>
           <span className={styles.headerIcon}>
@@ -319,160 +390,111 @@ export default function DeploymentsPage() {
           <div>
             <h1 className={styles.title}>Deployments</h1>
             <p className={styles.subtitle}>
-              Deploy metadata across Salesforce organizations with pipeline
-              control
+              Validate and deploy metadata from your local workspace to an org
             </p>
           </div>
         </div>
         <div className={styles.headerBadges}>
-          <Badge tone="info" dot>
-            {organizations.length} orgs
-          </Badge>
-          {deployVersion && <Badge tone="purple">{deployVersion}</Badge>}
+          {running > 0 && (
+            <Badge tone="info" dot>
+              {running} running
+            </Badge>
+          )}
         </div>
       </header>
 
-      {/* Org Connector - Wire/Plug UI */}
       <OrgConnector
+        workspace={workspace}
+        workspaceOrg={workspaceOrg}
         organizations={organizations}
-        sourceOrg={sourceOrg}
         targetOrg={targetOrg}
-        onSourceChange={setSourceOrg}
-        onTargetChange={setTargetOrg}
-        onSwap={handleSwap}
+        onTargetChange={handleTargetChange}
       />
 
-      {/* Main content grid */}
-      <div className={styles.grid}>
-        {/* Left Column - Metadata Selection */}
-        <div className={styles.leftCol}>
-          {/* Version / Commit */}
-          <Card
-            title="Version & Commit"
-            icon={<GitBranch size={18} />}
-            className={styles.versionCard}
+      {notice && (
+        <div className={styles.notice} role="alert">
+          <AlertTriangle size={16} />
+          <span>{notice}</span>
+          <button
+            type="button"
+            className={styles.noticeClose}
+            aria-label="Dismiss"
+            onClick={() => setNotice(null)}
           >
-            <div className={styles.versionRow}>
-              <div className={styles.versionInputGroup}>
-                <label className={styles.fieldLabel}>Version Tag</label>
-                <input
-                  className={styles.versionInput}
-                  placeholder="v1.0.0"
-                  value={deployVersion}
-                  onChange={(e) => setDeployVersion(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className={styles.commitRow}>
-              <label className={styles.fieldLabel}>
-                <GitCommit size={12} />
-                Deployment Message
-              </label>
-              <input
-                className={styles.commitInput}
-                placeholder="e.g. Added new Apex classes and Custom Objects..."
-                value={commitMessage}
-                onChange={(e) => setCommitMessage(e.target.value)}
-              />
-            </div>
-          </Card>
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
-          {/* Metadata Selector */}
-          <MetadataSelector
-            metadataTypes={metadataTypes}
-            selected={selectedMetadata}
-            search={search}
-            loading={loading}
-            onSearchChange={setSearch}
-            onToggle={toggleMetadata}
-            onClear={clearSelection}
+      <div className={styles.grid}>
+        <div className={styles.leftCol}>
+          <DeployForm
+            value={form}
+            onChange={updateForm}
+            workspace={workspace}
+            changes={changes}
+            changesLoading={changesLoading}
+            changesError={changesError}
+            onRefreshChanges={() => void loadChanges()}
+            selectedPaths={selectedPaths}
+            onClearSelectedPaths={clearSelectedPaths}
+            metadataCount={selectedMetadata.length}
+            starting={starting}
+            validateProblem={validateProblem}
+            deployProblem={deployProblem}
+            onValidate={() => void submit(true)}
+            onDeploy={() => void submit(false)}
           />
+
+          {form.scope === "metadata" && (
+            <>
+              {typesError && (
+                <p className={styles.inlineError} role="alert">
+                  Could not load metadata types from {targetOrg?.alias}:{" "}
+                  {typesError}
+                </p>
+              )}
+              <MetadataSelector
+                metadataTypes={metadataTypes}
+                selected={selectedMetadata}
+                search={search}
+                loading={typesLoading}
+                onSearchChange={setSearch}
+                onToggle={toggleMetadata}
+                onClear={() => setSelectedMetadata([])}
+              />
+            </>
+          )}
         </div>
 
-        {/* Right Column - Pipeline + Output */}
         <div className={styles.rightCol}>
-          {/* Pipeline */}
-          <DeploymentPipeline
-            steps={pipelineSteps}
-            currentStep={currentStep}
-            onRun={runDeployment}
-            running={running}
-            disabled={!canDeploy}
+          <DeployJobPanel
+            record={selectedRecord}
+            report={selectedReport}
+            reportError={selectedError}
+            orgAlias={selectedRecord ? orgAlias(selectedRecord.username) : ""}
+            now={now}
+            acting={acting}
+            actionError={actionError}
+            onCancel={() => selectedRecord && void cancelJob(selectedRecord)}
+            onQuickDeploy={() =>
+              selectedRecord && void quickDeploy(selectedRecord)
+            }
+            onLoadReport={() =>
+              selectedRecord && void loadReport(selectedRecord)
+            }
           />
-
-          {/* Console Output */}
-          <div className={styles.console}>
-            <div className={styles.consoleHeader}>
-              <div className={styles.consoleHeaderLeft}>
-                <Terminal size={14} />
-                <span>Console Output</span>
-                {phase !== "idle" && (
-                  <span
-                    className={`${styles.phaseBadge} ${styles[`phase-${phase}`]}`}
-                  >
-                    {phase === "validating" && "Validating"}
-                    {phase === "building" && "Building Package"}
-                    {phase === "deploying" && "Deploying"}
-                    {phase === "verifying" && "Verifying"}
-                    {phase === "done" && "Complete"}
-                    {phase === "error" && "Failed"}
-                  </span>
-                )}
-              </div>
-              {logs && (
-                <button
-                  className={styles.clearConsole}
-                  onClick={() => setLogs("")}
-                >
-                  <RefreshCw size={12} />
-                  Clear
-                </button>
-              )}
-            </div>
-            <div className={styles.consoleBody}>
-              <pre className={styles.consoleText}>
-                {logs || (
-                  <span className={styles.consolePlaceholder}>
-                    <Sparkles size={16} />
-                    <span>
-                      Ready — select source/target orgs and metadata, then run a
-                      deployment
-                    </span>
-                  </span>
-                )}
-              </pre>
-            </div>
-          </div>
-
-          {/* Quick actions */}
-          <div className={styles.quickActions}>
-            <button className={styles.quickActionBtn} onClick={handleSwap}>
-              <RefreshCw size={14} />
-              Swap Orgs
-            </button>
-            <button
-              className={styles.quickActionBtn}
-              onClick={() => {
-                setLogs(
-                  (p) =>
-                    p +
-                    `\n[${new Date().toLocaleTimeString()}] 📊 Generating diff report...\n`,
-                );
-              }}
-              disabled={!sourceOrg || !targetOrg}
-            >
-              <GitCommit size={14} />
-              Diff Report
-            </button>
-          </div>
         </div>
       </div>
 
-      {/* Deployment History */}
       <DeploymentHistory
         records={history}
-        onRollback={handleRollback}
-        onViewDetails={handleViewDetails}
+        selectedJobId={selectedRecord?.jobId ?? null}
+        onSelect={(jobId) => {
+          setActionError(null);
+          selectJob(jobId);
+        }}
+        orgAlias={orgAlias}
       />
     </div>
   );

@@ -1,0 +1,115 @@
+/* ------------------------------------------------------------
+   Quick Open / command palette — floats below the workspace toolbar
+   ------------------------------------------------------------ */
+
+/* Catches clicks outside the panel. Below dialogs (1000), which a command
+   can open, and toasts. */
+.forge-ws .fw-quick__backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 900;
+}
+
+.forge-ws .fw-quick {
+  position: absolute;
+  top: 42px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(640px, calc(100% - 32px));
+  max-height: min(60vh, 520px);
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  box-sizing: border-box;
+  background: #252526;
+  border: 1px solid #454545;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  color: var(--fw-text);
+}
+
+.forge-ws .fw-quick__input {
+  height: 30px;
+  padding: 0 10px;
+  flex-shrink: 0;
+  background: var(--fw-bg-input);
+  border: 1px solid var(--fw-accent);
+  border-radius: 4px;
+  color: var(--fw-text);
+  font: inherit;
+  font-size: 13px;
+}
+.forge-ws .fw-quick__input:focus {
+  outline: none;
+}
+.forge-ws .fw-quick__input::placeholder {
+  color: var(--fw-muted);
+}
+
+.forge-ws .fw-quick__list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.forge-ws .fw-quick__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.forge-ws .fw-quick__item.is-active {
+  background: rgba(0, 120, 212, 0.35);
+}
+
+.forge-ws .fw-quick__icon {
+  flex-shrink: 0;
+  color: #8a9bb8;
+}
+
+.forge-ws .fw-quick__label {
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.forge-ws .fw-quick__detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fw-muted);
+  font-size: 11.5px;
+}
+
+/* Matched characters */
+.forge-ws .fw-quick mark {
+  background: transparent;
+  color: #4fc1ff;
+  font-weight: 700;
+}
+
+.forge-ws .fw-quick__keys {
+  margin-left: auto;
+  padding: 1px 6px;
+  flex-shrink: 0;
+  border: 1px solid #454545;
+  border-radius: 3px;
+  color: var(--fw-text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.forge-ws .fw-quick__message {
+  padding: 8px 10px;
+  color: var(--fw-muted);
+  font-size: 12.5px;
+}

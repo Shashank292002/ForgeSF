@@ -83,3 +83,12 @@ export function resetWorkspaceBaseline(workspaceId: string | null) {
 export function cliInfo() {
   return invoke<CliInfo>("cli_info");
 }
+
+/**
+ * Points ForgeSF at a particular `sf` executable, or — with an empty path —
+ * back at discovery. The path is probed before it is accepted, and the CLI it
+ * found is reported back.
+ */
+export function setSalesforceCliPath(path: string) {
+  return invoke<CliInfo>("set_sf_path", { path: path.trim() || null });
+}

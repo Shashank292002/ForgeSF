@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import {
+  AlertTriangle,
   TerminalSquare,
   Play,
   RotateCcw,
@@ -9,6 +10,7 @@ import {
   Copy,
   Check,
   Trash2,
+  Download,
   Table2,
   FileJson,
   History,
@@ -20,7 +22,7 @@ import {
   runQuery,
   runSearch,
   runCommand,
-  runSfJson,
+  runApex,
   cancelSfCommand,
   newRunId,
 } from "../../services/tauri";
@@ -29,8 +31,16 @@ import OrgGuard from "../../components/OrgGuard/OrgGuard";
 import RecordTable from "./RecordTable";
 import { tokenize } from "../workspace/lib/tokenize";
 import { protectionPrompt } from "../org-manager/lib/orgProtection";
+import { offerReauthentication } from "../org-manager/lib/orgErrors";
+import { errorMessage } from "../../lib/errors";
+import { copyText } from "../../lib/clipboard";
 import { cliProtectionPrompt, stripCliName } from "../../lib/sfCli";
 import { confirm } from "../../components/ui/Confirm/confirm";
+import { toast } from "../../components/ui/Toast/toast";
+import SoqlEditor from "./SoqlEditor";
+import { objectOfQuery } from "./lib/soqlContext";
+import { exportFileName, toCsv, toJson } from "./lib/exportRecords";
+import { saveTextFile } from "./services/describeService";
 
 import "./SOQLPage.css";
 
@@ -48,6 +58,13 @@ const SNIPPETS: Record<Tab, string[]> = {
   apex: ["System.debug('Hello from anonymous Apex!');"],
   cli: ["org display --json"],
 };
+
+/**
+ * The row count past which a result is worth a warning. Everything a query
+ * matches crosses the IPC boundary and is drawn in one go, so a result this
+ * size is slow to fetch and slow to scroll. `LIMIT` is the cure.
+ */
+const LARGE_RESULT_ROWS = 2000;
 
 const TAB_LABELS: Record<Tab, string> = {
   soql: "SOQL",
@@ -100,6 +117,8 @@ export default function SOQLPage() {
   const [copied, setCopied] = useState(false);
   const [executeMs, setExecuteMs] = useState<number | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  /** Tooling objects are invisible to a plain query, and have their own describes. */
+  const [tooling, setTooling] = useState(false);
 
   // Entries remember the tab they were run from. A single flat list replayed
   // SOQL through whichever tab happened to be open — sending a query to the
@@ -166,6 +185,24 @@ export default function SOQLPage() {
     return parts.length > 0 ? parts.join(" · ") : null;
   }, [records, rowCount, executeMs]);
 
+  /** Saves the rows to a file the user picks. */
+  async function exportRecords(format: "csv" | "json") {
+    if (!records || records.length === 0) return;
+    const object = objectOfQuery(input, input.length);
+    const name = exportFileName(object, format);
+    try {
+      const written = await saveTextFile(
+        name,
+        format === "csv" ? toCsv(records) : toJson(records),
+      );
+      if (written) {
+        toast.success(`${records.length} rows saved`, { title: written });
+      }
+    } catch (error) {
+      toast.error(errorMessage(error, "Could not save the file."));
+    }
+  }
+
   function pushHistory(entryTab: Tab, q: string) {
     const trimmed = q.trim();
     if (!trimmed) return;
@@ -218,7 +255,8 @@ export default function SOQLPage() {
       setOutput(res);
       if (historyValue) pushHistory(historyTab, historyValue.trim());
     } catch (err: unknown) {
-      setOutput(err instanceof Error ? err.message : String(err));
+      setOutput(errorMessage(err));
+      offerReauthentication(err, org);
     } finally {
       activeRunId.current = null;
       setRunning(false);
@@ -231,7 +269,7 @@ export default function SOQLPage() {
       void runWith(
         async (runId) => {
           if (!org) return "";
-          return runQuery(org.username, override.trim(), runId);
+          return runQuery(org.username, override.trim(), runId, tooling);
         },
         forTab,
         override,
@@ -253,11 +291,7 @@ export default function SOQLPage() {
       void runWith(
         async (runId) => {
           if (!org) return "";
-          return runSfJson(
-            ["apex", "execute", "--target-org", org.username, "--json"],
-            override,
-            runId,
-          );
+          return runApex(org.username, override, runId);
         },
         forTab,
         override,
@@ -313,21 +347,21 @@ export default function SOQLPage() {
 
   async function copyOutput() {
     if (!output) return;
-    try {
-      await navigator.clipboard.writeText(output);
-      setCopied(true);
-      if (copyTimer.current) window.clearTimeout(copyTimer.current);
-      copyTimer.current = window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard may be unavailable in some environments; ignore
-    }
+    // Through the shared helper, which says so either way: a failed copy used
+    // to be swallowed, so the button simply did nothing.
+    if (!(await copyText(output, "the output"))) return;
+    setCopied(true);
+    if (copyTimer.current) window.clearTimeout(copyTimer.current);
+    copyTimer.current = window.setTimeout(() => setCopied(false), 1500);
   }
 
   function formatOutput() {
     try {
       setOutput(JSON.stringify(JSON.parse(output), null, 2));
     } catch {
-      // not valid JSON; leave as-is
+      // Not JSON — a CLI error message, or plain text. Saying so beats a
+      // button that visibly does nothing.
+      toast.info("This output is not JSON, so there is nothing to format.");
     }
   }
 
@@ -408,14 +442,30 @@ export default function SOQLPage() {
               <PanelGroup direction="vertical" className="soql-panel-group">
                 <Panel defaultSize={48} minSize={20}>
                   <div className="soql-panel-content">
-                    <textarea
-                      className="soql-input"
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={onKeyDown}
-                      spellCheck={false}
-                      placeholder="Enter a query, command, or snippet…"
-                    />
+                    {/* SOQL gets the real editor: highlighting, and a
+                        completion list built from the connected org's own
+                        objects and fields. The other tabs are a line or two
+                        of text, where a textarea is the better fit. */}
+                    {tab === "soql" ? (
+                      <SoqlEditor
+                        value={input}
+                        onChange={setInput}
+                        onRun={() => void runForTab(input)}
+                        username={org?.username}
+                        tooling={tooling}
+                        placeholder="SELECT Id, Name FROM Account LIMIT 10"
+                        readOnly={running}
+                      />
+                    ) : (
+                      <textarea
+                        className="soql-input"
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={onKeyDown}
+                        spellCheck={false}
+                        placeholder="Enter a query, command, or snippet…"
+                      />
+                    )}
 
                     <div className="soql-actions">
                       <Button
@@ -469,6 +519,22 @@ export default function SOQLPage() {
                         ))}
                       </select>
 
+                      {tab === "soql" && (
+                        <label
+                          className="soql-tooling"
+                          title="Query Tooling API objects — ApexClass, ApexTrigger, Flow and the rest, which a plain query cannot see"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={tooling}
+                            onChange={(event) =>
+                              setTooling(event.target.checked)
+                            }
+                          />
+                          Tooling API
+                        </label>
+                      )}
+
                       <span className="soql-shortcut">
                         <kbd>Ctrl</kbd>+<kbd>↵</kbd> to run
                       </span>
@@ -511,12 +577,34 @@ export default function SOQLPage() {
                           </div>
                         )}
 
+                        {records && records.length > 0 && (
+                          <div className="soql-export">
+                            <button
+                              className="soql-export-btn"
+                              onClick={() => void exportRecords("csv")}
+                              title="Save these rows as CSV"
+                            >
+                              <Download size={14} /> CSV
+                            </button>
+                            <button
+                              className="soql-export-btn"
+                              onClick={() => void exportRecords("json")}
+                              title="Save these rows as JSON"
+                            >
+                              <Download size={14} /> JSON
+                            </button>
+                          </div>
+                        )}
+
                         {output && (
                           <>
                             <button
                               className="soql-format-btn"
                               onClick={formatOutput}
                               title="Format JSON"
+                              // Its only child is the glyph "{}", which is
+                              // what a screen reader would otherwise read out.
+                              aria-label="Format the JSON output"
                             >
                               {"{}"}
                             </button>
@@ -536,6 +624,7 @@ export default function SOQLPage() {
                               className="soql-clear-btn"
                               onClick={() => setOutput("")}
                               title="Clear output"
+                              aria-label="Clear the output"
                             >
                               <X size={14} />
                             </button>
@@ -543,6 +632,18 @@ export default function SOQLPage() {
                         )}
                       </div>
                     </div>
+
+                    {!running && rowCount >= LARGE_RESULT_ROWS && (
+                      <div className="soql-output-warning">
+                        <AlertTriangle size={14} />
+                        <span>
+                          {rowCount.toLocaleString()} rows came back. The whole
+                          result is held in memory and drawn at once, so it is
+                          slow to scroll and to copy — add a <code>LIMIT</code>{" "}
+                          to keep it quick.
+                        </span>
+                      </div>
+                    )}
 
                     {running ? (
                       <pre className="soql-output-pre soql-output-muted">
@@ -584,6 +685,7 @@ export default function SOQLPage() {
                       onClick={clearHistory}
                       disabled={history.length === 0}
                       title="Clear history (all orgs)"
+                      aria-label="Clear the query history for all orgs"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -617,6 +719,7 @@ export default function SOQLPage() {
                           className="soql-history-run"
                           onClick={() => runFromHistory(item)}
                           title="Run again"
+                          aria-label="Run this query again"
                         >
                           <Play size={13} />
                         </button>
@@ -624,6 +727,7 @@ export default function SOQLPage() {
                           className="soql-history-x"
                           onClick={() => removeHistory(i)}
                           title="Remove"
+                          aria-label="Remove this query from the history"
                         >
                           <X size={12} />
                         </button>

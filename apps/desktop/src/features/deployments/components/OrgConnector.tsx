@@ -13,16 +13,24 @@ interface OrgConnectorProps {
   organizations: Organization[];
   targetOrg: Organization | null;
   onTargetChange: (org: Organization | null) => void;
+  /**
+   * Whether the left side is another org rather than the local workspace —
+   * true for the metadata scope, which takes components from a source org.
+   */
+  fromOrg?: boolean;
+  sourceOrg?: Organization | null;
+  onSourceChange?: (org: Organization | null) => void;
 }
 
 /**
- * What goes where: the local workspace on the left, the target org on the
+ * What goes where: what is being sent on the left, the target org on the
  * right.
  *
- * This used to offer a "Source Org" picker, but the source only chose which
- * org's type list to show — the deploy always sent the local workspace, which
- * could belong to a third org entirely. The left side now shows exactly what
- * is sent.
+ * The left side used to be a "Source Org" picker that only chose which org's
+ * type list to show — the deploy always sent the local workspace, which could
+ * belong to a third org entirely. It now shows exactly what is sent: the
+ * workspace for the file scopes, and a real source org for the metadata
+ * scope, whose components are staged and passed on to the target.
  */
 export default function OrgConnector({
   workspace,
@@ -30,10 +38,18 @@ export default function OrgConnector({
   organizations,
   targetOrg,
   onTargetChange,
+  fromOrg = false,
+  sourceOrg = null,
+  onSourceChange,
 }: OrgConnectorProps) {
-  const connected = Boolean(workspace && targetOrg);
-  const crossOrg = Boolean(
-    workspace?.orgId && targetOrg && workspace.orgId !== targetOrg.id,
+  const connected = fromOrg
+    ? Boolean(sourceOrg && targetOrg)
+    : Boolean(workspace && targetOrg);
+  const crossOrg =
+    !fromOrg &&
+    Boolean(workspace?.orgId && targetOrg && workspace.orgId !== targetOrg.id);
+  const sameOrg = Boolean(
+    fromOrg && sourceOrg && targetOrg && sourceOrg.id === targetOrg.id,
   );
 
   // `settled` is the only real state: whether the plug-in animation has
@@ -56,33 +72,68 @@ export default function OrgConnector({
   return (
     <div className={styles.wrapper}>
       <div className={styles.container}>
-        {/* Source: the local workspace */}
+        {/* Source: the local workspace, or the org components come from */}
         <div className={styles.orgColumn}>
           <div className={styles.orgLabel}>
             <CircleDot
               size={10}
-              className={workspace ? styles.connected : styles.disconnected}
+              className={
+                (fromOrg ? sourceOrg?.status === "Connected" : workspace)
+                  ? styles.connected
+                  : styles.disconnected
+              }
             />
-            Local workspace
+            {fromOrg ? "Source Org" : "Local workspace"}
           </div>
           <div className={styles.orgSelector}>
             <div className={styles.cloudIcon}>
-              <FolderGit2 size={20} />
+              {fromOrg ? <Cloud size={22} /> : <FolderGit2 size={20} />}
             </div>
-            <div className={styles.workspaceInfo}>
-              <span className={styles.workspaceName}>
-                {workspace ? workspace.name : "No workspace open"}
-              </span>
-              <span className={styles.workspacePath} title={workspace?.path}>
-                {workspace
-                  ? workspaceOrg
-                    ? `Retrieved from ${workspaceOrg.alias}`
-                    : workspace.orgId
-                      ? "Belongs to an org that is not connected"
-                      : "Not bound to an org"
-                  : "Open the Workspace to choose one"}
-              </span>
-            </div>
+            {fromOrg ? (
+              <>
+                <select
+                  className={styles.select}
+                  value={sourceOrg?.id ?? ""}
+                  aria-label="Source org"
+                  onChange={(e) => {
+                    const org =
+                      organizations.find((o) => o.id === e.target.value) ??
+                      null;
+                    onSourceChange?.(org);
+                  }}
+                >
+                  <option value="">Select source org...</option>
+                  {organizations.map((org) => (
+                    <option key={org.id} value={org.id}>
+                      {org.alias} ({org.orgType})
+                    </option>
+                  ))}
+                </select>
+                {sourceOrg && (
+                  <div className={styles.orgMeta}>
+                    <span className={styles.orgType}>{sourceOrg.orgType}</span>
+                    <span className={styles.orgUrl}>
+                      {sourceOrg.instanceUrl.replace("https://", "")}
+                    </span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className={styles.workspaceInfo}>
+                <span className={styles.workspaceName}>
+                  {workspace ? workspace.name : "No workspace open"}
+                </span>
+                <span className={styles.workspacePath} title={workspace?.path}>
+                  {workspace
+                    ? workspaceOrg
+                      ? `Retrieved from ${workspaceOrg.alias}`
+                      : workspace.orgId
+                        ? "Belongs to an org that is not connected"
+                        : "Not bound to an org"
+                    : "Open the Workspace to choose one"}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -195,6 +246,23 @@ export default function OrgConnector({
           This workspace came from {workspaceOrg?.alias ?? "a different org"}.
           Deploying it to {targetOrg?.alias} sends that org&rsquo;s files —
           you&rsquo;ll be asked to confirm.
+        </p>
+      )}
+
+      {sameOrg && (
+        <p className={styles.crossOrg} role="status">
+          <AlertTriangle size={14} />
+          {sourceOrg?.alias} is both the source and the target. Pick a different
+          org to deploy to.
+        </p>
+      )}
+
+      {fromOrg && !sameOrg && (
+        <p className={styles.crossOrg} role="status">
+          <AlertTriangle size={14} />
+          The chosen components are retrieved from{" "}
+          {sourceOrg?.alias ?? "the source org"} into a temporary folder and
+          deployed from there. Your open workspace is not read or changed.
         </p>
       )}
     </div>

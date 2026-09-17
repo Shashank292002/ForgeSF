@@ -16,8 +16,6 @@ By the end of this sprint we should have:
 - React Application
 - Tauri Desktop Application
 - Rust Toolchain
-- Tailwind CSS
-- shadcn/ui
 - Initial Project Structure
 
 ---
@@ -456,7 +454,9 @@ Completed
 - Rust
 - Cargo
 - Tauri
-- Tailwind CSS
-- shadcn/ui
+
+> Tailwind CSS and shadcn/ui were planned in this sprint but never adopted. The
+> app styles with CSS Modules and a small set of hand-written primitives, with
+> design tokens in `apps/desktop/src/styles/variables.css`.
 
 ForgeSF is now ready for Sprint 1.

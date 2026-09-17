@@ -1,13 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { open } from "@tauri-apps/plugin-dialog";
-
+import { errorKind } from "@/lib/errors";
+import { usePreferencesStore } from "@/store/preferencesStore";
 import type {
   CopyResult,
   FileContent,
   FileStamp,
+  GeneratedSource,
+  GenerateRequest,
   PathChange,
+  PickedFolder,
   RenameResult,
   SearchRequest,
   SearchResults,
@@ -47,10 +50,15 @@ export type WorkspaceId = string | null | undefined;
 export const isTauriRuntime =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-/** Opens the native folder picker. Returns the selected folder or null. */
-export async function selectWorkspaceFolder(): Promise<string | null> {
-  const folder = await open({ directory: true, multiple: false });
-  return typeof folder === "string" ? folder : null;
+/**
+ * Opens the native folder picker. Null when cancelled.
+ *
+ * The picker runs in Rust, which remembers the choice: `addWorkspace` only
+ * accepts the folder picked here, so the page can't make any other path a
+ * workspace.
+ */
+export function pickWorkspaceFolder(): Promise<PickedFolder | null> {
+  return invoke<PickedFolder | null>("pick_workspace_folder");
 }
 
 /** Returns the absolute path of a workspace root. */
@@ -110,8 +118,7 @@ export function saveWorkspaceFileContent(
 
 /** Whether a save failed because the file changed on disk after it was read. */
 export function isChangedOnDisk(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.startsWith("CHANGED_ON_DISK");
+  return errorKind(error) === "changedOnDisk";
 }
 
 /**
@@ -238,6 +245,11 @@ export function watchWorkspace(workspaceId?: WorkspaceId): Promise<void> {
   return invoke<void>("watch_workspace", { workspaceId: workspaceId ?? null });
 }
 
+/** Stops the watcher, so it does not outlive the workspace it followed. */
+export function unwatchWorkspace(): Promise<void> {
+  return invoke<void>("unwatch_workspace");
+}
+
 /** Subscribes to changes the watcher reports. Resolves to an unsubscribe. */
 export function onWorkspaceFsChanged(
   callback: (event: WorkspaceFsEvent) => void,
@@ -313,15 +325,56 @@ export function listWorkspaces(): Promise<WorkspaceRegistry> {
 }
 
 /**
- * Registers a folder and makes it active. Re-adding an existing one activates
- * it. Passing `orgId` binds the folder to that org, replacing whatever folder
- * the org was using.
+ * Generates Salesforce source through the CLI's own template generators, so
+ * the `-meta.xml`, the API version and a bundle's layout are whatever `sf`
+ * itself produces rather than something ForgeSF reproduces by hand.
  */
+export function generateSource(
+  request: GenerateRequest,
+  workspaceId?: WorkspaceId,
+): Promise<GeneratedSource> {
+  return invoke<GeneratedSource>("generate_source", {
+    request,
+    workspaceId: workspaceId ?? null,
+  });
+}
+
+/**
+ * Registers the folder just chosen with `pickWorkspaceFolder` and makes it
+ * active. Re-adding an existing one activates it. Passing `orgId` binds the
+ * folder to that org, replacing whatever folder the org was using.
+ *
+ * A folder without `sfdx-project.json` is refused unless `createProject` is
+ * set, when one is added: only do that once the user has agreed. `label` — the
+ * org's alias or username — is then asked for its API version, so the new
+ * project matches the org rather than whatever version this build shipped with.
+ * An org that cannot be asked falls back to the Settings preference.
+ */
+/**
+ * The Settings "default API version", or null to let the backend fall back.
+ *
+ * Read here rather than threaded through every caller, and read at call time
+ * because preferences load asynchronously after startup. The preference was
+ * stored and never used at all before this.
+ */
+function preferredApiVersion(): string | null {
+  const version = usePreferencesStore.getState().defaultApiVersion.trim();
+  return version === "" ? null : version;
+}
+
 export function addWorkspace(
   path: string,
   orgId?: string | null,
+  createProject = false,
+  label?: string | null,
 ): Promise<Workspace> {
-  return invoke<Workspace>("add_workspace", { path, orgId: orgId ?? null });
+  return invoke<Workspace>("add_workspace", {
+    path,
+    orgId: orgId ?? null,
+    createProject,
+    label: label ?? null,
+    fallbackApiVersion: preferredApiVersion(),
+  });
 }
 
 /**
@@ -338,6 +391,7 @@ export function workspaceForOrg(
   return invoke<Workspace>("workspace_for_org", {
     orgId,
     label: label ?? null,
+    fallbackApiVersion: preferredApiVersion(),
   });
 }
 
@@ -345,8 +399,15 @@ export function setActiveWorkspace(id: string): Promise<Workspace> {
   return invoke<Workspace>("set_active_workspace", { id });
 }
 
-export function removeWorkspace(id: string): Promise<WorkspaceRegistry> {
-  return invoke<WorkspaceRegistry>("remove_workspace", { id });
+/**
+ * Forgets a project. `deleteFiles` also deletes the folder, and only works for
+ * one ForgeSF created itself — the backend refuses any other path.
+ */
+export function removeWorkspace(
+  id: string,
+  deleteFiles = false,
+): Promise<WorkspaceRegistry> {
+  return invoke<WorkspaceRegistry>("remove_workspace", { id, deleteFiles });
 }
 
 export function renameWorkspace(
@@ -390,6 +451,29 @@ export function diffWorkspacePath(
     username,
     path,
     workspaceId: workspaceId ?? null,
+  });
+}
+
+/**
+ * Compares the same metadata in two orgs, through a manifest in the project.
+ *
+ * Neither org's copy touches the workspace: both are retrieved into scratch
+ * projects and compared there, so a comparison never overwrites what you are
+ * working on.
+ */
+export function compareOrgs(
+  sourceUsername: string,
+  targetUsername: string,
+  manifestPath: string,
+  workspaceId?: WorkspaceId,
+  runId?: string,
+): Promise<DiffSession> {
+  return invoke<DiffSession>("compare_orgs", {
+    sourceUsername,
+    targetUsername,
+    manifestPath,
+    workspaceId: workspaceId ?? null,
+    runId: runId ?? null,
   });
 }
 

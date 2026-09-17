@@ -1,4 +1,4 @@
-import { createElement, useEffect, useMemo, useState } from "react";
+import { createElement, useMemo, useState } from "react";
 import {
   CheckCheck,
   ChevronLeft,
@@ -9,29 +9,43 @@ import {
 } from "lucide-react";
 
 import { categoryForType } from "../../lib/categories";
-import { memberSummary } from "../../lib/retrieveSpecs";
+import { memberSummary } from "../../lib/metadataSpecs";
 import {
   needsExplicitMembers,
   wildcardCaveat,
   type CatalogType,
 } from "../../lib/typeCatalog";
-import MemberList from "./MemberList";
+import MemberList, { type MemberListClasses } from "../MemberList";
 
 interface Props {
   metadata: CatalogType[];
   types: string[];
   activeType: string | null;
   componentsCache: Record<string, string[]>;
-  loadingType: string | null;
+  /** Whether the active type's components are being listed. */
+  loading: boolean;
   error: string | null;
   selectedMembers: Record<string, string[]>;
   onActiveType: (kind: string) => void;
   onToggleMember: (kind: string, member: string) => void;
   onSelectAll: (kind: string) => void;
   onClear: (kind: string) => void;
-  onEnsureComponents: (kind: string) => void;
   onBack: () => void;
 }
+
+/**
+ * The wizard styles its picker from `MetadataRetriever.css`, a global
+ * stylesheet. Naming the classes here keeps that look while the component
+ * itself is shared with the Deployments page, which brings its own.
+ */
+const WIZARD_CLASSES: MemberListClasses = {
+  scroll: "mr-comps__scroll",
+  viewport: "mr-comps__viewport",
+  row: "mr-comp",
+  selected: "is-selected",
+  check: "mr-comp__check",
+  name: "mr-comp__name",
+};
 
 /**
  * Second step of the retrieval flow — pick the exact components to pull for
@@ -43,23 +57,16 @@ export default function RetrieveComponentsStep({
   types,
   activeType,
   componentsCache,
-  loadingType,
+  loading,
   error,
   selectedMembers,
   onActiveType,
   onToggleMember,
   onSelectAll,
   onClear,
-  onEnsureComponents,
   onBack,
 }: Props) {
   const [search, setSearch] = useState("");
-
-  // Make sure a component list exists for the active type.
-  useEffect(() => {
-    if (activeType) onEnsureComponents(activeType);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeType]);
 
   const members = useMemo(
     () => (activeType ? (componentsCache[activeType] ?? []) : []),
@@ -173,6 +180,7 @@ export default function RetrieveComponentsStep({
               className="mr-search__clear"
               onClick={() => setSearch("")}
               title="Clear filter"
+              aria-label="Clear the filter"
             >
               <X size={14} />
             </button>
@@ -194,24 +202,21 @@ export default function RetrieveComponentsStep({
         </div>
 
         <div className="mr-comps__list">
-          {loadingType === activeType && (
+          {loading && (
             <div className="mr-comps__state">
               <Loader2 size={16} className="mr-spin" /> Loading components…
             </div>
           )}
-          {loadingType !== activeType && error && (
+          {!loading && error && (
             <div className="mr-comps__state is-error">{error}</div>
           )}
-          {loadingType !== activeType &&
-            !error &&
-            activeType &&
-            filtered.length === 0 && (
-              <div className="mr-comps__state">
-                {members.length === 0
-                  ? "No components found for this type in the org."
-                  : "No components match your filter."}
-              </div>
-            )}
+          {!loading && !error && activeType && filtered.length === 0 && (
+            <div className="mr-comps__state">
+              {members.length === 0
+                ? "No components found for this type in the org."
+                : "No components match your filter."}
+            </div>
+          )}
           {!activeType && (
             <div className="mr-comps__state">
               <Layers size={18} /> Select a metadata type to choose its
@@ -222,6 +227,8 @@ export default function RetrieveComponentsStep({
             <MemberList
               members={filtered}
               picked={picked}
+              classes={WIZARD_CLASSES}
+              label={`${activeType} components`}
               onToggle={(member) => onToggleMember(activeType, member)}
             />
           )}

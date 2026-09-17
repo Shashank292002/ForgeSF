@@ -11,6 +11,7 @@ const project = (overrides: Partial<Workspace> = {}): Workspace => ({
   lastOrgId: null,
   lastRetrievedOrgId: null,
   createdAt: 0,
+  managed: false,
   ...overrides,
 });
 

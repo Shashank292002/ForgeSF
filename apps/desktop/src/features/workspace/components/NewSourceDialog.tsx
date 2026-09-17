@@ -1,0 +1,302 @@
+import { createElement, useMemo, useState } from "react";
+import {
+  Braces,
+  FileCode2,
+  LayoutTemplate,
+  Puzzle,
+  Sparkles,
+  Zap,
+} from "lucide-react";
+
+import { useWorkspaceStore } from "../store/workspaceStore";
+import { Button, Dialog } from "../../../components/ui";
+import type { GenerateRequest } from "@/types/generated";
+
+import styles from "./NewSourceDialog.module.css";
+
+interface Props {
+  onClose: () => void;
+}
+
+interface Kind {
+  key: GenerateRequest["kind"];
+  label: string;
+  hint: string;
+  icon: typeof FileCode2;
+  /** Name shown in the field's placeholder, in that kind's convention. */
+  example: string;
+  templates?: { value: string; label: string }[];
+}
+
+/**
+ * What the CLI's generators can make. Each one writes its own metadata file
+ * and bundle layout, which is the reason to go through them at all.
+ */
+const KINDS: Kind[] = [
+  {
+    key: "apexClass",
+    label: "Apex Class",
+    hint: "A .cls file and its metadata.",
+    icon: FileCode2,
+    example: "AccountService",
+    templates: [
+      { value: "DefaultApexClass", label: "Empty class" },
+      { value: "ApexUnitTest", label: "Unit test" },
+      { value: "BasicUnitTest", label: "Basic unit test" },
+      { value: "Batchable", label: "Batchable" },
+      { value: "Queueable", label: "Queueable" },
+      { value: "ApexException", label: "Exception" },
+      { value: "InboundEmailService", label: "Inbound email service" },
+    ],
+  },
+  {
+    key: "apexTrigger",
+    label: "Apex Trigger",
+    hint: "On an object, for the events you choose.",
+    icon: Zap,
+    example: "AccountTrigger",
+  },
+  {
+    key: "lwc",
+    label: "Lightning Web Component",
+    hint: "A bundle: JavaScript, HTML, metadata and a test.",
+    icon: Sparkles,
+    example: "accountCard",
+  },
+  {
+    key: "aura",
+    label: "Aura Component",
+    hint: "The older Lightning bundle.",
+    icon: Puzzle,
+    example: "AccountCard",
+  },
+  {
+    key: "visualforcePage",
+    label: "Visualforce Page",
+    hint: "A .page file and its metadata.",
+    icon: LayoutTemplate,
+    example: "AccountSummary",
+  },
+  {
+    key: "visualforceComponent",
+    label: "Visualforce Component",
+    hint: "A reusable .component.",
+    icon: Braces,
+    example: "AccountBanner",
+  },
+];
+
+const TRIGGER_EVENTS = [
+  "before insert",
+  "before update",
+  "before delete",
+  "after insert",
+  "after update",
+  "after delete",
+  "after undelete",
+];
+
+/** The same rule Rust enforces, so the error arrives before the CLI starts. */
+function invalidName(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null; // Nothing typed yet is not an error, just not ready.
+  if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(trimmed)) {
+    return "Start with a letter, then letters, digits and underscores only.";
+  }
+  if (trimmed.includes("__")) return "No double underscores.";
+  if (trimmed.endsWith("_")) return "Cannot end with an underscore.";
+  if (trimmed.length > 40) return "40 characters at most.";
+  return null;
+}
+
+/**
+ * Creating Salesforce source the way the platform expects it.
+ *
+ * "New File" makes a file; this makes a class with the right API version in
+ * its metadata, or an LWC with its four-file bundle — the things that are
+ * tedious and easy to get subtly wrong by hand.
+ */
+export default function NewSourceDialog({ onClose }: Props) {
+  const generate = useWorkspaceStore((state) => state.generateSource);
+
+  const [kindKey, setKindKey] = useState<GenerateRequest["kind"]>("apexClass");
+  const [name, setName] = useState("");
+  const [template, setTemplate] = useState("DefaultApexClass");
+  const [sobject, setSobject] = useState("Account");
+  const [events, setEvents] = useState<string[]>(["before insert"]);
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const kind = useMemo(
+    () => KINDS.find((item) => item.key === kindKey) ?? KINDS[0],
+    [kindKey],
+  );
+  const problem = invalidName(name);
+  const ready = name.trim().length > 0 && !problem && !busy;
+
+  function chooseKind(next: Kind) {
+    setKindKey(next.key);
+    // Each kind has its own default template; keeping the previous one would
+    // send `Batchable` to a Visualforce page.
+    setTemplate(next.templates?.[0]?.value ?? "");
+  }
+
+  function toggleEvent(event: string) {
+    setEvents((current) =>
+      current.includes(event)
+        ? current.filter((item) => item !== event)
+        : [...current, event],
+    );
+  }
+
+  async function submit() {
+    if (!ready) return;
+    setBusy(true);
+    const created = await generate({
+      kind: kindKey,
+      name: name.trim(),
+      template: kind.templates ? template : null,
+      sobject: kindKey === "apexTrigger" ? sobject.trim() : null,
+      events: kindKey === "apexTrigger" && events.length > 0 ? events : null,
+      label: label.trim() ? label.trim() : null,
+    });
+    setBusy(false);
+    if (created) onClose();
+  }
+
+  return (
+    <Dialog
+      title="New Salesforce source"
+      description="Generated by the Salesforce CLI, so the metadata file and API version match the project."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => void submit()}
+            loading={busy}
+            disabled={!ready}
+          >
+            Create
+          </Button>
+        </>
+      }
+    >
+      <div
+        className={styles.kinds}
+        role="radiogroup"
+        aria-label="What to create"
+      >
+        {KINDS.map((item) => {
+          const active = item.key === kindKey;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              className={`${styles.kind} ${active ? styles.kindActive : ""}`}
+              onClick={() => chooseKind(item)}
+            >
+              <span className={styles.kindIcon}>
+                {createElement(item.icon, { size: 16 })}
+              </span>
+              <span className={styles.kindLabel}>{item.label}</span>
+              <span className={styles.kindHint}>{item.hint}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className={styles.field}>
+        <label htmlFor="new-source-name">Name</label>
+        <input
+          id="new-source-name"
+          type="text"
+          value={name}
+          data-autofocus=""
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={kind.example}
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && ready) void submit();
+          }}
+        />
+        {problem && (
+          <p className={styles.problem} role="alert">
+            {problem}
+          </p>
+        )}
+      </div>
+
+      {kind.templates && (
+        <div className={styles.field}>
+          <label htmlFor="new-source-template">Template</label>
+          <select
+            id="new-source-template"
+            value={template}
+            onChange={(event) => setTemplate(event.target.value)}
+          >
+            {kind.templates.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {kindKey === "apexTrigger" && (
+        <>
+          <div className={styles.field}>
+            <label htmlFor="new-source-sobject">Object</label>
+            <input
+              id="new-source-sobject"
+              type="text"
+              value={sobject}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Account"
+              onChange={(event) => setSobject(event.target.value)}
+            />
+          </div>
+
+          <fieldset className={styles.events}>
+            <legend>Events</legend>
+            {TRIGGER_EVENTS.map((event) => (
+              <label key={event} className={styles.event}>
+                <input
+                  type="checkbox"
+                  checked={events.includes(event)}
+                  onChange={() => toggleEvent(event)}
+                />
+                {event}
+              </label>
+            ))}
+          </fieldset>
+        </>
+      )}
+
+      {(kindKey === "visualforcePage" ||
+        kindKey === "visualforceComponent") && (
+        <div className={styles.field}>
+          <label htmlFor="new-source-label">Label</label>
+          <input
+            id="new-source-label"
+            type="text"
+            value={label}
+            autoComplete="off"
+            placeholder={name.trim() || kind.example}
+            onChange={(event) => setLabel(event.target.value)}
+          />
+          <p className={styles.note}>Shown in Setup. Defaults to the name.</p>
+        </div>
+      )}
+    </Dialog>
+  );
+}

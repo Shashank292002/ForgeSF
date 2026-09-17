@@ -10,6 +10,13 @@ import { create } from "zustand";
 
 export type ToastTone = "info" | "success" | "warning" | "error";
 
+/** A button on a notice that fixes what it reports: "Re-authenticate". */
+export interface ToastAction {
+  label: string;
+  /** Runs when the button is pressed; the notice then closes. */
+  onClick: () => void;
+}
+
 export interface Toast {
   id: number;
   tone: ToastTone;
@@ -17,11 +24,13 @@ export interface Toast {
   message: string;
   /** Milliseconds before it goes away on its own; null to stay until closed. */
   durationMs: number | null;
+  action?: ToastAction;
 }
 
 export interface ToastOptions {
   title?: string;
   durationMs?: number | null;
+  action?: ToastAction;
 }
 
 interface ToastState {
@@ -57,6 +66,7 @@ function push(
       options.durationMs === undefined
         ? DEFAULT_DURATION[tone]
         : options.durationMs,
+    action: options.action,
   };
   useToastStore.setState((state) => {
     // The same notice again replaces the earlier one rather than stacking: a

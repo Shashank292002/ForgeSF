@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Database,
   Home,
   Users,
   Rocket,
@@ -7,6 +8,8 @@ import {
   Settings,
   TerminalSquare,
   FolderGit2,
+  Network,
+  ScrollText,
 } from "lucide-react";
 
 export interface NavItem {
@@ -33,7 +36,11 @@ export const navigationGroups: NavGroup[] = [
     label: "Develop",
     items: [
       { label: "Workspace", path: "/workspace", icon: FolderGit2 },
+      // A real route that had no way in but a Dashboard tile.
+      { label: "Metadata", path: "/metadata", icon: Database },
       { label: "Developer Tools", path: "/devtools", icon: TerminalSquare },
+      { label: "Debug Logs", path: "/logs", icon: ScrollText },
+      { label: "Dependencies", path: "/dependencies", icon: Network },
       { label: "Deployments", path: "/deployments", icon: Rocket },
     ],
   },
@@ -45,5 +52,3 @@ export const navigationGroups: NavGroup[] = [
     ],
   },
 ];
-
-export const navigation: NavItem[] = navigationGroups.flatMap((g) => g.items);

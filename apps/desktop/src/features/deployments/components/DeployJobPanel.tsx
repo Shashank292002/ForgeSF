@@ -16,6 +16,7 @@ import { Badge, Button } from "../../../components/ui";
 import { cls } from "../../../lib/cls";
 import { canQuickDeploy, QUICK_DEPLOY_WINDOW_MS } from "../lib/deployStatus";
 import {
+  COVERAGE_TARGET,
   TEST_LEVELS,
   formatDuration,
   jobKind,
@@ -40,9 +41,6 @@ interface DeployJobPanelProps {
   onQuickDeploy: () => void;
   onLoadReport: () => void;
 }
-
-/** Salesforce requires this much coverage per class for production. */
-const COVERAGE_TARGET = 75;
 
 function Progress({
   label,
@@ -247,8 +245,9 @@ export default function DeployJobPanel({
           {new Date(
             (record.completedAt ?? record.createdAt) + QUICK_DEPLOY_WINDOW_MS,
           ).toLocaleDateString()}{" "}
-          if the tests met its coverage rules — with specified tests, 75% of
-          each class deployed — and nothing else is deployed to the org first.
+          if the tests met its coverage rules — with specified tests,{" "}
+          {COVERAGE_TARGET}% of each class deployed — and nothing else is
+          deployed to the org first.
         </p>
       )}
 

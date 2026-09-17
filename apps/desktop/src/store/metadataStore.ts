@@ -1,10 +1,12 @@
 import { create } from "zustand";
 
-import type { MetadataType } from "../features/metadata/types";
-
+/**
+ * What the user picked to retrieve. The listings themselves are cached by
+ * `useOrgMetadata`, which shares them with the Deployments page.
+ */
 interface MetadataState {
   /**
-   * Username of the org `metadata` was loaded from.
+   * Username of the org the selection belongs to.
    *
    * Selections are scoped to it: the store previously kept one global
    * selection, so switching orgs left you able to retrieve or deploy types
@@ -12,17 +14,14 @@ interface MetadataState {
    */
   orgUsername: string | null;
 
-  /** Metadata types available in `orgUsername`'s org. */
-  metadata: MetadataType[];
-
   /** Metadata types selected for an upcoming retrieve or deploy. */
   selectedTypes: string[];
 
   /** Components picked per metadata type (`Kind -> [member, …]`). */
   selectedMembers: Record<string, string[]>;
 
-  /** Replaces the type list, clearing selections when the org changed. */
-  setMetadata: (orgUsername: string, metadata: MetadataType[]) => void;
+  /** Notes which org is being picked from, clearing a previous org's picks. */
+  setOrg: (orgUsername: string) => void;
 
   setSelectedTypes: (types: string[]) => void;
   toggleType: (xmlName: string) => void;
@@ -36,30 +35,21 @@ interface MetadataState {
 
   /** Clears the member selection for one metadata type (back to "all"). */
   clearMemberSelection: (xmlName: string) => void;
-
-  /** Clears every per-type component selection. */
-  clearAllMembers: () => void;
 }
 
 export const useMetadataStore = create<MetadataState>((set) => ({
   orgUsername: null,
 
-  metadata: [],
-
   selectedTypes: [],
 
   selectedMembers: {},
 
-  setMetadata: (orgUsername, metadata) =>
-    set((state) => {
-      const sameOrg = state.orgUsername === orgUsername;
-      return {
-        orgUsername,
-        metadata,
-        selectedTypes: sameOrg ? state.selectedTypes : [],
-        selectedMembers: sameOrg ? state.selectedMembers : {},
-      };
-    }),
+  setOrg: (orgUsername) =>
+    set((state) =>
+      state.orgUsername === orgUsername
+        ? state
+        : { orgUsername, selectedTypes: [], selectedMembers: {} },
+    ),
 
   setSelectedTypes: (selectedTypes) => set({ selectedTypes }),
 
@@ -103,6 +93,4 @@ export const useMetadataStore = create<MetadataState>((set) => ({
       delete next[xmlName];
       return { selectedMembers: next };
     }),
-
-  clearAllMembers: () => set({ selectedMembers: {} }),
 }));

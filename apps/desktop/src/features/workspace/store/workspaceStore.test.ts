@@ -5,7 +5,6 @@ const invoke = vi.hoisted(() => vi.fn());
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@tauri-apps/plugin-store", () => ({
   load: vi.fn(async () => ({
     get: vi.fn(async () => undefined),
@@ -33,9 +32,10 @@ vi.mock("../../../components/ui/Confirm/confirm", () => ({
 
 import { useWorkspaceStore, waitForWorkspaceSync } from "./workspaceStore";
 import { useOrganizationStore } from "../../../store/orgStore";
+import { usePreferencesStore } from "../../../store/preferencesStore";
 import type { Organization } from "../../org-manager/types";
 import type { Workspace, WorkspaceFile } from "../types";
-import type { FileStamp } from "@/types/generated";
+import type { FileStamp, PickedFolder } from "@/types/generated";
 import { findNode, getBaseName } from "../lib/workspaceUtils";
 
 const CLASSES = "force-app/main/default/classes";
@@ -188,9 +188,11 @@ describe("a file that changed on disk", () => {
       async (command: string, args: { expected?: FileStamp | null }) => {
         if (command === "write_workspace_file") {
           if (args.expected) {
-            throw new Error(
-              "CHANGED_ON_DISK: 'Foo.cls' changed on disk after it was opened.",
-            );
+            // What Rust rejects with.
+            throw {
+              kind: "changedOnDisk",
+              message: "'Foo.cls' changed on disk after it was opened.",
+            };
           }
           return NEWER;
         }
@@ -711,6 +713,7 @@ const workspaceFor = (org: Organization): Workspace => ({
   path: `/workspaces/${org.alias}`,
   orgId: org.id,
   lastOrgId: org.id,
+  managed: true,
   lastRetrievedOrgId: null,
   createdAt: 0,
 });
@@ -828,6 +831,108 @@ describe("org switching", () => {
     );
     expect(useWorkspaceStore.getState().openWorkspaceId).toBe("ws-a");
     expect(useOrganizationStore.getState().selectedOrganization?.id).toBe(a.id);
+  });
+});
+
+describe("opening a folder", () => {
+  const PICKED: Workspace = {
+    id: "ws-picked",
+    name: "picked",
+    path: "C:/repos/picked",
+    orgId: null,
+    lastOrgId: null,
+    lastRetrievedOrgId: null,
+    managed: false,
+    createdAt: 0,
+  };
+
+  /** A backend whose folder picker returns `folder`, and which registers it. */
+  function pickerReturns(folder: PickedFolder | null) {
+    invoke.mockImplementation(async (command: string) => {
+      switch (command) {
+        case "pick_workspace_folder":
+          return folder;
+        case "add_workspace":
+          return PICKED;
+        case "list_workspaces":
+          return { version: 3, activeId: PICKED.id, workspaces: [PICKED] };
+        case "read_workspace":
+          return [];
+        case "get_workspace_root":
+          return PICKED.path;
+        default:
+          return undefined;
+      }
+    });
+  }
+
+  const folder = (isSalesforceProject: boolean): PickedFolder => ({
+    path: PICKED.path,
+    name: PICKED.name,
+    isSalesforceProject,
+  });
+  const addCall = () =>
+    invoke.mock.calls.find(([command]) => command === "add_workspace");
+
+  it("asks before adding a project file to a folder without one", async () => {
+    pickerReturns(folder(false));
+    confirm.mockResolvedValue(false);
+
+    await useWorkspaceStore.getState().addWorkspace();
+
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Make picked a Salesforce project?" }),
+    );
+    expect(addCall()).toBeUndefined();
+  });
+
+  it("adds the project file once the user agrees", async () => {
+    pickerReturns(folder(false));
+
+    await useWorkspaceStore.getState().addWorkspace();
+
+    expect(addCall()?.[1]).toEqual({
+      path: PICKED.path,
+      orgId: null,
+      createProject: true,
+      // No org selected, so the new project falls back to the API version
+      // preference — and to the shipped default when that is unset too —
+      // rather than asking an org for its own.
+      label: null,
+      fallbackApiVersion: null,
+    });
+  });
+
+  it("sends the API version preference for a project it creates", async () => {
+    // The preference used to be written, persisted and read by nothing, so a
+    // new project silently took whatever version this build shipped with.
+    usePreferencesStore.setState({ defaultApiVersion: "63.0" });
+    pickerReturns(folder(false));
+    confirm.mockResolvedValue(true);
+
+    await useWorkspaceStore.getState().addWorkspace();
+
+    expect(addCall()?.[1]).toMatchObject({ fallbackApiVersion: "63.0" });
+    usePreferencesStore.setState({ defaultApiVersion: "" });
+    expect(useWorkspaceStore.getState().openWorkspaceId).toBe(PICKED.id);
+  });
+
+  it("opens a Salesforce project without asking or writing anything", async () => {
+    pickerReturns(folder(true));
+
+    await useWorkspaceStore.getState().addWorkspace();
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(addCall()?.[1]).toMatchObject({ createProject: false });
+  });
+
+  it("does nothing when the picker is cancelled", async () => {
+    pickerReturns(null);
+
+    await useWorkspaceStore.getState().addWorkspace();
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(addCall()).toBeUndefined();
   });
 });
 

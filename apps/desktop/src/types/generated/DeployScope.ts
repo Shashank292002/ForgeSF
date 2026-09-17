@@ -3,4 +3,4 @@
 /**
  * What a deploy sends.
  */
-export type DeployScope = { "kind": "workspace" } | { "kind": "paths", paths: Array<string>, } | { "kind": "metadata", metadata: Array<string>, };
+export type DeployScope = { "kind": "workspace" } | { "kind": "paths", paths: Array<string>, } | { "kind": "metadata", metadata: Array<string>, } | { "kind": "manifest", path: string, } | { "kind": "orgSource", sourceUsername: string, metadata: Array<string>, };

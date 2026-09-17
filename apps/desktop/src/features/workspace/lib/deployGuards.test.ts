@@ -50,6 +50,7 @@ describe("workspaceOrgMismatchPrompt", () => {
     orgId,
     lastOrgId: orgId,
     lastRetrievedOrgId: null,
+    managed: false,
     createdAt: 0,
   });
 

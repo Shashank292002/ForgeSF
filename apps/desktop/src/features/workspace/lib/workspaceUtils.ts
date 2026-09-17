@@ -19,14 +19,6 @@ export function getParentPath(path: string): string {
   return index === -1 ? "" : normalized.slice(0, index);
 }
 
-/** Flattens a file tree into a single list (depth-first). */
-export function collectFiles(items: WorkspaceFile[]): WorkspaceFile[] {
-  return items.flatMap((item) => [
-    item,
-    ...(item.children ? collectFiles(item.children) : []),
-  ]);
-}
-
 /** All ancestor directory paths of a file/folder, outermost first. */
 export function getAncestors(path: string): string[] {
   const normalized = normalizePath(path);
@@ -169,11 +161,6 @@ export function compareNodes(a: WorkspaceFile, b: WorkspaceFile): number {
     return typeRank(a.type) - typeRank(b.type);
   }
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-}
-
-/** Collapses overlapping ranges back into a singleton list. */
-export function unique(values: string[]): string[] {
-  return [...new Set(values)];
 }
 
 /**

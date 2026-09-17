@@ -18,12 +18,14 @@ import type {
   DiffSession as RustDiffSession,
   MetadataType as RustMetadataType,
   Organization as RustOrganization,
+  RetrieveProgressEvent as RustRetrieveProgressEvent,
   RetrieveResult as RustRetrieveResult,
   WorkspaceEntry as RustWorkspaceEntry,
   WorkspaceRegistry as RustWorkspaceRegistry,
 } from "./generated";
 
 import type { Organization } from "@/features/org-manager/types";
+import type { RetrieveProgressEvent } from "@/services/tauri";
 import type { MetadataType, RetrieveResult } from "@/features/metadata/types";
 import type {
   DiffEntry,
@@ -40,6 +42,11 @@ export type IpcContractChecks = [
   Covers<Organization, RustOrganization>,
   Covers<MetadataType, RustMetadataType>,
   Covers<RetrieveResult, RustRetrieveResult>,
+  // The hand-written one narrows `phase` and `status` to the values the UI
+  // switches on; this asserts it still covers every field Rust sends. It was
+  // the one such pair missing from this list — exactly the drift this file
+  // exists to catch.
+  Covers<RetrieveProgressEvent, RustRetrieveProgressEvent>,
   Covers<DiffEntry, RustDiffEntry>,
   Covers<DiffSession, RustDiffSession>,
   Covers<Workspace, RustWorkspaceEntry>,

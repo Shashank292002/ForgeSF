@@ -57,6 +57,7 @@ export default function WorkspaceToolbar() {
             type="button"
             className="workspace-toolbar__btn"
             title="Save All"
+            aria-label="Save all files"
             onClick={() => void saveAll()}
           >
             <Save size={14} />
@@ -66,6 +67,7 @@ export default function WorkspaceToolbar() {
           type="button"
           className="workspace-toolbar__btn"
           title="Refresh"
+          aria-label="Refresh the workspace files"
           onClick={() => void refreshFiles()}
         >
           <RotateCw size={14} />

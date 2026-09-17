@@ -12,27 +12,49 @@ import {
   deployReport,
   deployStart,
 } from "../services/deployService";
-import { isTerminal, withReport } from "../lib/deployStatus";
+import { isTerminal, succeeded, withReport } from "../lib/deployStatus";
 import { jobKind, statusLabel } from "../lib/deployForm";
 import { toast } from "../../../components/ui/Toast/toast";
+import { errorMessage } from "../../../lib/errors";
+import { recordActivity } from "../../../store/activityStore";
 import { useOrganizationStore } from "../../../store/orgStore";
+import { offerReauthentication } from "../../org-manager/lib/orgErrors";
+
+/** The connected org a job ran against, when it is still connected. */
+const orgNamed = (username: string) =>
+  useOrganizationStore
+    .getState()
+    .organizations.find((org) => org.username === username);
 
 /**
  * Says how a job ended, whichever page is open: jobs run in the background,
  * and a deploy started from the Workspace can finish while you are elsewhere.
  */
 function announceFinished(record: DeployRecord, report: DeployReport) {
-  const org =
-    useOrganizationStore
-      .getState()
-      .organizations.find((item) => item.username === record.username)?.alias ??
-    record.username;
+  const org = orgNamed(record.username)?.alias ?? record.username;
   const title = `${jobKind(record)} ${statusLabel(report.status).toLowerCase()}`;
   const where = `${record.label} · ${org}`;
   const problem =
     report.errorMessage ??
     report.componentFailures[0]?.problem ??
     report.testFailures[0]?.message;
+
+  // The Dashboard's activity card says it covers "Deploys, retrieves, test
+  // runs and orgs", but only a deploy started from the Workspace ever
+  // recorded one — everything from the Deployments page was missing.
+  recordActivity({
+    kind: succeeded(report.status)
+      ? "success"
+      : report.status === "Canceled"
+        ? "info"
+        : "error",
+    source: "deploy",
+    title: `${jobKind(record)} of ${record.label} ${statusLabel(
+      report.status,
+    ).toLowerCase()}`,
+    detail: problem ?? undefined,
+    org,
+  });
 
   switch (report.status) {
     case "Succeeded":
@@ -102,10 +124,6 @@ const watchers = new Map<string, Promise<DeployReport | null>>();
 /** Finished jobs whose results are being fetched. */
 const reportRequests = new Set<string>();
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 export const useDeployJobsStore = create<DeployJobsState>((set, get) => {
   function upsertRecord(record: DeployRecord) {
     set((state) => {
@@ -143,6 +161,7 @@ export const useDeployJobsStore = create<DeployJobsState>((set, get) => {
   async function follow(record: DeployRecord): Promise<DeployReport | null> {
     let failures = 0;
     let latest: DeployReport | null = null;
+    let offeredLogin = false;
 
     for (;;) {
       try {
@@ -156,6 +175,14 @@ export const useDeployJobsStore = create<DeployJobsState>((set, get) => {
         }
       } catch (error) {
         failures += 1;
+        // Once, straight away: polling keeps going, and resumes by itself if
+        // the login happens before it gives up.
+        if (!offeredLogin) {
+          offeredLogin = offerReauthentication(
+            error,
+            orgNamed(record.username),
+          );
+        }
         if (failures >= MAX_POLL_FAILURES) {
           set((state) => ({
             errors: { ...state.errors, [record.jobId]: errorMessage(error) },
@@ -231,6 +258,7 @@ export const useDeployJobsStore = create<DeployJobsState>((set, get) => {
         set((state) => ({
           errors: { ...state.errors, [record.jobId]: errorMessage(error) },
         }));
+        offerReauthentication(error, orgNamed(record.username));
       } finally {
         reportRequests.delete(record.jobId);
       }

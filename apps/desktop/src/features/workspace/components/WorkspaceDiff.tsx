@@ -11,17 +11,27 @@ import { registerApexLanguage, defineForgeTheme } from "../lib/apexLanguage";
 import "../lib/monaco";
 import type { Monaco } from "../lib/monaco";
 import { getBaseName } from "../lib/workspaceUtils";
+import { errorMessage } from "../../../lib/errors";
 import type { DiffEntry, DiffPair, DiffStatus } from "../types";
 
 import "./WorkspaceDiff.css";
 
-const STATUS_LABEL: Record<DiffStatus, string> = {
-  changed: "Changed",
-  identical: "Identical",
-  localOnly: "Local only",
-  orgOnly: "Org only",
-  binary: "Not a text file",
-};
+/**
+ * What each status is called. "Local" and "Org" are the two sides of a Diff
+ * Check; when two orgs are compared they become the orgs' own names, so a row
+ * says which org has the file rather than a word that fits neither.
+ */
+function statusLabels(sides: { source: string; target: string } | null) {
+  const left = sides ? sides.source : "Local";
+  const right = sides ? sides.target : "Org";
+  return {
+    changed: "Changed",
+    identical: "Identical",
+    localOnly: `Only in ${left}`,
+    orgOnly: `Only in ${right}`,
+    binary: "Not a text file",
+  } satisfies Record<DiffStatus, string>;
+}
 
 /** Sort order: what needs attention first. */
 const STATUS_RANK: Record<DiffStatus, number> = {
@@ -104,6 +114,10 @@ function OrgDiffEditor({
  */
 export default function WorkspaceDiff() {
   const session = useWorkspaceStore((state) => state.diffSession);
+  // Set when two orgs are being compared; a plain Diff Check has none, and
+  // the sides are then the workspace and the org.
+  const sides = useWorkspaceStore((state) => state.diffSides);
+  const labels = statusLabels(sides);
   const loading = useWorkspaceStore((state) => state.diffLoading);
   const error = useWorkspaceStore((state) => state.diffError);
   const closeDiff = useWorkspaceStore((state) => state.closeDiff);
@@ -157,9 +171,7 @@ export default function WorkspaceDiff() {
         if (!cancelled) setPair(result);
       } catch (caught) {
         if (!cancelled) {
-          setPairError(
-            caught instanceof Error ? caught.message : String(caught),
-          );
+          setPairError(errorMessage(caught));
         }
       }
     };
@@ -194,6 +206,7 @@ export default function WorkspaceDiff() {
               type="button"
               className="fw-diff__back"
               title="Back to the file list"
+              aria-label="Back to the file list"
               onClick={() => setSelected(null)}
             >
               <ArrowLeft size={15} />
@@ -209,7 +222,10 @@ export default function WorkspaceDiff() {
               {active ? getBaseName(active) : (session?.target ?? "Diff Check")}
             </span>
             <span className="fw-diff__sub">
-              {active ?? "Local workspace compared with the org"}
+              {active ??
+                (sides
+                  ? `${sides.source} compared with ${sides.target}`
+                  : "Local workspace compared with the org")}
             </span>
           </div>
 
@@ -217,6 +233,7 @@ export default function WorkspaceDiff() {
             type="button"
             className="fw-diff__close"
             title="Close"
+            aria-label="Close the diff"
             onClick={closeDiff}
           >
             <X size={16} />
@@ -267,7 +284,7 @@ export default function WorkspaceDiff() {
                     title={entry.path}
                   >
                     <span className="fw-diff__status">
-                      {STATUS_LABEL[entry.status]}
+                      {labels[entry.status]}
                     </span>
                     <span className="fw-diff__path">{entry.path}</span>
                     <span className="fw-diff__lines">
@@ -293,8 +310,8 @@ export default function WorkspaceDiff() {
           {!loading && !error && active && !pairError && pair && (
             <div className="fw-diff__editor">
               <div className="fw-diff__legend">
-                <span>Org</span>
-                <span>Workspace</span>
+                <span>{sides ? sides.target : "Org"}</span>
+                <span>{sides ? sides.source : "Workspace"}</span>
               </div>
               <OrgDiffEditor
                 path={active}

@@ -203,3 +203,16 @@
   outline: 1px solid var(--fw-accent);
   outline-offset: -1px;
 }
+
+/* ─── Apex coverage ─────────────────────────────────────────────
+   Lines the last test run never reached. Kept faint: it marks work to do,
+   and should not make the code itself harder to read. */
+.fw-uncovered-line {
+  background: rgba(241, 76, 76, 0.07);
+}
+
+.fw-uncovered-gutter {
+  width: 3px !important;
+  margin-left: 3px;
+  background: var(--fw-error);
+}

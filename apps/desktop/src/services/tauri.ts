@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { Organization } from "../features/org-manager/types";
+import type { OrgDetails } from "../types/generated/OrgDetails";
+import type { OrgLimit } from "../types/generated/OrgLimit";
 import type { MetadataType, RetrieveResult } from "../features/metadata/types";
 
 export type {
@@ -74,6 +76,20 @@ export function logoutOrg(username: string) {
   });
 }
 
+/** Identity, instance and API version, from `sf org display`. */
+export function getOrgDetails(username: string) {
+  return invoke<OrgDetails>("get_org_details", {
+    username,
+  });
+}
+
+/** Governor limits and their headroom, from `sf limits api display`. */
+export function getOrgLimits(username: string) {
+  return invoke<OrgLimit[]>("org_limits", {
+    username,
+  });
+}
+
 // List all metadata types
 export function listMetadataTypes(username: string) {
   return invoke<MetadataType[]>("list_metadata_types", {
@@ -118,8 +134,20 @@ export function newRunId(): string {
  * multi-line queries work on Windows, where `sf.cmd` cannot take arguments
  * containing line breaks.
  */
-export function runQuery(username: string, query: string, runId?: string) {
-  return invoke<string>("run_query", { username, query, runId: runId ?? null });
+export function runQuery(
+  username: string,
+  query: string,
+  runId?: string,
+  tooling = false,
+) {
+  return invoke<string>("run_query", {
+    username,
+    query,
+    runId: runId ?? null,
+    // Tooling objects — ApexClass, Flow, the metadata ones — are invisible to
+    // a plain query.
+    tooling,
+  });
 }
 
 /** Runs a SOSL search — passed by file for the same reason as `runQuery`. */
@@ -143,6 +171,20 @@ export function runCommand(args: string[], input?: string, runId?: string) {
  * exits 0 when Apex compiles and then throws, so exit-code checking alone
  * reports a failed run as a success.
  */
+/**
+ * Runs an anonymous Apex block against an org.
+ *
+ * Its own command rather than `runSfJson`, because the CLI wants the
+ * block in a file and only Rust can write one.
+ */
+export function runApex(username: string, code: string, runId?: string) {
+  return invoke<string>("run_apex", {
+    username,
+    code,
+    runId: runId ?? null,
+  });
+}
+
 export function runSfJson(args: string[], input?: string, runId?: string) {
   return invoke<string>("run_sf_json", { args, input, runId: runId ?? null });
 }

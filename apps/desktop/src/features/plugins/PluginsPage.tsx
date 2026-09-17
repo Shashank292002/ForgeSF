@@ -79,8 +79,10 @@ export default function PluginsPage() {
               </Badge>
             </h1>
             <p className={styles.subtitle}>
-              Plugin support is on the roadmap. These are ideas for what
-              extensions could do — nothing here can be installed yet.
+              Plugin support is designed but not built — see{" "}
+              <code>docs/plugin-sdk.md</code> for the security model and the API
+              it proposes. These are ideas for what extensions could do; nothing
+              here can be installed yet.
             </p>
           </div>
         </div>

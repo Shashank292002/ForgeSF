@@ -3,6 +3,8 @@ import {
   Cloud,
   Database,
   Files,
+  FileCode,
+  FlaskConical,
   UploadCloud,
   Loader2,
   Search,
@@ -30,6 +32,18 @@ const ITEMS: Item[] = [
     label: "Pending Changes",
     icon: UploadCloud,
     shortcut: "Ctrl+Shift+G",
+  },
+  {
+    id: "tests",
+    label: "Apex Tests",
+    icon: FlaskConical,
+    shortcut: "Ctrl+Shift+T",
+  },
+  {
+    id: "manifests",
+    label: "Manifests",
+    icon: FileCode,
+    shortcut: "Ctrl+Shift+X",
   },
   {
     id: "metadata",

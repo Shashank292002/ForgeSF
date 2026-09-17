@@ -29,4 +29,13 @@ lastRetrievedOrgId: string | null,
  * Milliseconds since the Unix epoch. Kept numeric so no date-formatting
  * crate is needed on the Rust side; the UI formats it.
  */
-createdAt: number, };
+createdAt: number, 
+/**
+ * Whether ForgeSF created this folder itself, inside its own app data.
+ *
+ * Only those may be deleted along with the registry entry — a folder the
+ * user picked is theirs. Derived from the path on every response and
+ * neither stored (`write_registry_file` strips it) nor trusted from a
+ * stored file (`read_registry_file` clears it), so it cannot go stale.
+ */
+managed: boolean, };

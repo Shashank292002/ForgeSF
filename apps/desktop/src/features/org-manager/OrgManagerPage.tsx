@@ -4,6 +4,7 @@ import { RefreshCw, Users } from "lucide-react";
 import OrgList from "./components/OrgList";
 import AddOrgButton from "./components/AddOrgButton";
 
+import { errorMessage } from "../../lib/errors";
 import { listOrgs } from "../../services/tauri";
 import { useOrganizationStore } from "../../store/orgStore";
 
@@ -28,11 +29,7 @@ export default function OrgManagerPage() {
       setOrganizations(live);
       useOrganizationStore.setState({ orgLoadError: null });
     } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Could not reach the Salesforce CLI.",
-      );
+      setError(errorMessage(caught, "Could not reach the Salesforce CLI."));
     } finally {
       setRefreshing(false);
     }

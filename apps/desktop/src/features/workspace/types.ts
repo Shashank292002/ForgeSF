@@ -32,6 +32,12 @@ export interface Workspace {
   lastRetrievedOrgId: string | null;
   /** Milliseconds since the Unix epoch. */
   createdAt: number;
+  /**
+   * Whether ForgeSF created this folder for an org inside its own app data.
+   * Only those may be deleted along with the entry; a folder the user picked
+   * is theirs and is only ever forgotten.
+   */
+  managed: boolean;
 }
 
 /** The persisted registry of projects. */
@@ -48,15 +54,13 @@ export interface WorkspaceRegistry {
 
 /** The sidebar views reachable from the activity bar. */
 export type SidebarView =
-  "explorer" | "search" | "scm" | "metadata" | "settings";
-
-export const SIDEBAR_VIEWS: SidebarView[] = [
-  "explorer",
-  "search",
-  "scm",
-  "metadata",
-  "settings",
-] as const;
+  | "explorer"
+  | "search"
+  | "scm"
+  | "tests"
+  | "manifests"
+  | "metadata"
+  | "settings";
 
 export type TerminalSource = "terminal" | "deploy" | "command" | "system";
 export type TerminalKind = "info" | "success" | "error" | "cmd" | "warning";
@@ -77,13 +81,6 @@ export interface CursorPosition {
 }
 
 /** Context-menu request emitted by the explorer tree. */
-export interface TreeContextMenu {
-  x: number;
-  y: number;
-  path: string;
-  type: WorkspaceFileType;
-}
-
 /** What the status bar says about the file in the editor. */
 export interface EditorInfo {
   /** Indents with spaces rather than tabs. */

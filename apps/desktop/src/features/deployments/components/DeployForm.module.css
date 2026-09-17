@@ -32,6 +32,13 @@
   border-top: 1px solid var(--color-border);
 }
 
+/* The metadata selector, sitting between "What to send" and the test
+   options. Separated like a section so the form reads as one sequence. */
+.slot {
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
 .label {
   font-size: 11px;
   font-weight: 600;

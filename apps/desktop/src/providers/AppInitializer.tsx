@@ -18,14 +18,14 @@ import { clearDiffSessions } from "../features/workspace/services/workspaceServi
 import { cliInfo } from "../features/deployments/services/deployService";
 import { useDeployJobsStore } from "../features/deployments/store/deployJobsStore";
 import { toast } from "../components/ui/Toast/toast";
+import { usePreferencesStore } from "../store/preferencesStore";
+import { useActivityStore } from "../store/activityStore";
+import { setSalesforceCliPath } from "../features/deployments/services/deployService";
+import { errorMessage } from "../lib/errors";
 import type { Organization } from "../features/org-manager/types";
 
 interface Props {
   children: ReactNode;
-}
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
 }
 
 /**
@@ -161,6 +161,28 @@ export default function AppInitializer({ children }: Props) {
     // A failed write used to be swallowed: the UI reported success and the
     // data was gone on next launch. It then borrowed the org list's "could not
     // reach the CLI" banner, which only the Organizations page shows.
+    // What the app has done before, for the Dashboard's activity card.
+    void useActivityStore.getState().load();
+
+    // Read before anything else needs them: the editor's font, and the `sf`
+    // path every CLI call goes through.
+    void usePreferencesStore
+      .getState()
+      .load()
+      .then(() => {
+        const path = usePreferencesStore.getState().sfPath;
+        // Reported, not swallowed: the path is what every CLI call goes
+        // through, and Settings would otherwise still say "Using the path
+        // you set" while nothing was using it.
+        if (path) {
+          void setSalesforceCliPath(path).catch((error: unknown) => {
+            toast.error(errorMessage(error), {
+              title: "The saved Salesforce CLI path could not be used",
+            });
+          });
+        }
+      });
+
     onPersistFailure((message) =>
       toast.error(message, { title: "A setting was not saved" }),
     );

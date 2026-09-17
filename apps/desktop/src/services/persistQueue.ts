@@ -1,3 +1,5 @@
+import { errorMessage } from "../lib/errors";
+
 /**
  * Serialises writes to the on-disk store and reports failures.
  *
@@ -35,7 +37,7 @@ export function persist<T>(
     try {
       return await write();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       const detail = `Could not save ${label}: ${message}`;
       for (const listener of listeners) listener(detail);
       console.error(detail);

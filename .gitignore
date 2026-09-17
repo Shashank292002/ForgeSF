@@ -6,10 +6,17 @@ node_modules/
 dist/
 dist-ssr/
 .vite/
+build/
 
-# Tauri / Rust build artifacts
+# Tauri / Rust build artifacts. `target/` matches at any depth, which covers
+# apps/desktop/src-tauri/target as well.
 target/
-src-tauri/target/
+
+# Test and tooling caches
+coverage/
+.turbo/
+.eslintcache
+*.tsbuildinfo
 
 # Logs
 logs/
@@ -41,9 +48,18 @@ desktop.ini
 *.bak
 *.old
 
+# Merge and patch leftovers, which are never meant to be committed
+*.orig
+*.rej
+
 # Local Salesforce development workspaces
 apps/desktop/workspace/
 
+# Salesforce CLI project-local state (metadata catalog, config). The CLI writes
+# it into its working directory, which was wherever ForgeSF was launched from.
+.sf/
+.sfdx/
+
 # Stray workspace created at the repo root by the old CWD-dependent
-# workspace resolution (see get_workspace in src-tauri/src/commands.rs).
+# workspace resolution (see get_workspace in src-tauri/src/workspace/registry.rs).
 /workspace/

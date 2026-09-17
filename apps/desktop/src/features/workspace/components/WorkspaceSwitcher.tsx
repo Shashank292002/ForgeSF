@@ -1,9 +1,11 @@
 import { useRef, useState } from "react";
-import { Check, FolderGit2, FolderPlus } from "lucide-react";
+import { Check, FolderGit2, FolderPlus, Pencil, Trash2 } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { useOrganizationStore } from "../../../store/orgStore";
 import { Menu, MenuItem, MenuSeparator } from "../../../components/ui";
+import { forgetWorkspaceWithFiles, renameWorkspacePrompt } from "../lib/manage";
+import type { Workspace } from "../types";
 
 import "./WorkspaceSwitcher.css";
 
@@ -21,6 +23,8 @@ export default function WorkspaceSwitcher() {
   const workspaceName = useWorkspaceStore((state) => state.workspaceName);
   const switchWorkspace = useWorkspaceStore((state) => state.switchWorkspace);
   const addWorkspace = useWorkspaceStore((state) => state.addWorkspace);
+  const renameWorkspace = useWorkspaceStore((state) => state.renameWorkspace);
+  const removeWorkspace = useWorkspaceStore((state) => state.removeWorkspace);
   const organizations = useOrganizationStore((state) => state.organizations);
 
   const [open, setOpen] = useState(false);
@@ -31,6 +35,12 @@ export default function WorkspaceSwitcher() {
     if (!orgId) return null;
     return organizations.find((org) => org.id === orgId)?.alias ?? null;
   };
+
+  const onRename = (workspace: Workspace) =>
+    void renameWorkspacePrompt(workspace, renameWorkspace);
+
+  const onForget = (workspace: Workspace) =>
+    void forgetWorkspaceWithFiles(workspace, removeWorkspace);
 
   return (
     <div className="workspace-switcher">
@@ -69,30 +79,51 @@ export default function WorkspaceSwitcher() {
               const org = orgLabelFor(workspace.orgId ?? workspace.lastOrgId);
 
               return (
-                <MenuItem
-                  key={workspace.id}
-                  className={`workspace-switcher__item ${
-                    isActive ? "is-active" : ""
-                  }`}
-                  title={workspace.path}
-                  aria-current={isActive ? "true" : undefined}
-                  onSelect={() => void switchWorkspace(workspace.id)}
-                >
-                  <span className="workspace-switcher__check">
-                    {isActive && <Check size={12} strokeWidth={3} />}
-                  </span>
-                  <span className="workspace-switcher__label">
-                    <span className="workspace-switcher__name">
-                      {workspace.name}
+                // Rename and Forget are menu items of their own rather than
+                // buttons inside the row: a button cannot contain buttons, and
+                // this way the arrow keys reach them too.
+                <div className="workspace-switcher__row" key={workspace.id}>
+                  <MenuItem
+                    className={`workspace-switcher__item ${
+                      isActive ? "is-active" : ""
+                    }`}
+                    title={workspace.path}
+                    aria-current={isActive ? "true" : undefined}
+                    onSelect={() => void switchWorkspace(workspace.id)}
+                  >
+                    <span className="workspace-switcher__check">
+                      {isActive && <Check size={12} strokeWidth={3} />}
                     </span>
-                    <span className="workspace-switcher__path">
-                      {workspace.path}
+                    <span className="workspace-switcher__label">
+                      <span className="workspace-switcher__name">
+                        {workspace.name}
+                      </span>
+                      <span className="workspace-switcher__path">
+                        {workspace.path}
+                      </span>
                     </span>
-                  </span>
-                  {org && (
-                    <span className="workspace-switcher__org">{org}</span>
-                  )}
-                </MenuItem>
+                    {org && (
+                      <span className="workspace-switcher__org">{org}</span>
+                    )}
+                  </MenuItem>
+
+                  <MenuItem
+                    className="workspace-switcher__action"
+                    title={`Rename ${workspace.name}`}
+                    aria-label={`Rename ${workspace.name}`}
+                    onSelect={() => onRename(workspace)}
+                  >
+                    <Pencil size={12} />
+                  </MenuItem>
+                  <MenuItem
+                    className="workspace-switcher__action"
+                    title={`Remove ${workspace.name} from ForgeSF`}
+                    aria-label={`Remove ${workspace.name} from ForgeSF`}
+                    onSelect={() => onForget(workspace)}
+                  >
+                    <Trash2 size={12} />
+                  </MenuItem>
+                </div>
               );
             })
           )}

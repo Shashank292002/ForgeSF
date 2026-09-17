@@ -93,6 +93,7 @@ export default function RetrieveSelectStep({
               className="mr-search__clear"
               onClick={() => onSearch("")}
               title="Clear search"
+              aria-label="Clear the search"
             >
               <X size={14} />
             </button>

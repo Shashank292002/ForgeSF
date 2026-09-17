@@ -14,6 +14,9 @@ import SideBar from "./components/SideBar";
 import WorkspaceExplorer from "./components/WorkspaceExplorer";
 import WorkspaceSearch from "./components/WorkspaceSearch";
 import SourceControl from "./components/SourceControl";
+import ApexTestPanel from "./components/ApexTestPanel";
+import ManifestPanel from "./components/ManifestPanel";
+import WorkspaceSettingsPanel from "./components/WorkspaceSettingsPanel";
 import WorkspaceEditor from "./components/WorkspaceEditor";
 import WorkspacePanel from "./components/WorkspacePanel";
 import WorkspaceStatusBar from "./components/WorkspaceStatusBar";
@@ -31,6 +34,8 @@ const SIDEBAR_TITLES: Record<string, string> = {
   explorer: "Explorer",
   search: "Search",
   scm: "Pending Changes",
+  tests: "Apex Tests",
+  manifests: "Manifests",
   metadata: "Metadata",
   settings: "Settings",
 };
@@ -135,12 +140,10 @@ export default function WorkspacePage() {
                   {activeView === "explorer" && <WorkspaceExplorer />}
                   {activeView === "search" && <WorkspaceSearch />}
                   {activeView === "scm" && <SourceControl />}
+                  {activeView === "tests" && <ApexTestPanel />}
+                  {activeView === "manifests" && <ManifestPanel />}
                   {activeView === "metadata" && <MetadataLauncher />}
-                  {activeView === "settings" && (
-                    <div className="forge-ws__placeholder">
-                      Workspace settings are coming soon.
-                    </div>
-                  )}
+                  {activeView === "settings" && <WorkspaceSettingsPanel />}
                 </SideBar>
               </Panel>
 

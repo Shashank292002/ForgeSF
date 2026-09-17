@@ -10,6 +10,8 @@ import DashboardPage from "../../features/dashboard/DashboardPage";
 import OrgManagerPage from "../../features/org-manager/OrgManagerPage";
 import MetadataPage from "../../features/metadata/MetadataPage";
 import SOQLPage from "../../features/soql/SOQLPage";
+import LogsPage from "../../features/logs/LogsPage";
+import DependenciesPage from "../../features/dependencies/DependenciesPage";
 import DeploymentsPage from "../../features/deployments/DeploymentsPage";
 import PluginsPage from "../../features/plugins/PluginsPage";
 import SettingsPage from "../../features/settings/SettingsPage";
@@ -52,6 +54,16 @@ const router = createBrowserRouter([
       {
         path: "devtools",
         element: <SOQLPage />,
+      },
+
+      {
+        path: "logs",
+        element: <LogsPage />,
+      },
+
+      {
+        path: "dependencies",
+        element: <DependenciesPage />,
       },
 
       {

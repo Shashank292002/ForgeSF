@@ -41,6 +41,19 @@
   align-items: center;
 }
 
+/* The logo and the toggle do not fit side by side in 76px — the toggle was
+   clipped by the sidebar edge — so they stack, and the arrow points outward
+   to say "expand". */
+.collapsed .topRow {
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+}
+
+.collapsed .topActions .iconBtn:not(.closeBtn) svg {
+  transform: rotate(180deg);
+}
+
 /* ── Mobile drawer ─────────────────────── */
 @media (max-width: 900px) {
   .sidebar {

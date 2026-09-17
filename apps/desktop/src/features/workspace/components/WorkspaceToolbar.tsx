@@ -1,4 +1,12 @@
-import { Cloud, Database, Loader2, RotateCw, Rocket, Save } from "lucide-react";
+import {
+  Cloud,
+  Database,
+  Loader2,
+  RotateCw,
+  Rocket,
+  Save,
+  Search,
+} from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { useOrganizationStore } from "../../../store/orgStore";
@@ -13,6 +21,7 @@ export default function WorkspaceToolbar() {
   const saveAll = useWorkspaceStore((state) => state.saveAll);
   const runDeploy = useWorkspaceStore((state) => state.runDeploy);
   const openRetrieve = useWorkspaceStore((state) => state.openRetrieve);
+  const openQuickInput = useWorkspaceStore((state) => state.openQuickInput);
 
   const organization = useOrganizationStore(
     (state) => state.selectedOrganization,
@@ -29,12 +38,26 @@ export default function WorkspaceToolbar() {
         <span className="workspace-toolbar__tag">ForgeSF</span>
       </div>
 
+      {/* Where Quick Open and the command palette can be found without
+          knowing their shortcuts. */}
+      <button
+        type="button"
+        className="workspace-toolbar__goto"
+        title="Go to File (Ctrl+P) — type > for commands (Ctrl+Shift+P)"
+        onClick={() => openQuickInput("")}
+      >
+        <Search size={13} />
+        <span className="workspace-toolbar__goto-label">Go to file…</span>
+        <kbd className="workspace-toolbar__goto-keys">Ctrl+P</kbd>
+      </button>
+
       <div className="workspace-toolbar__actions">
         {dirtyCount > 0 && (
           <button
             type="button"
             className="workspace-toolbar__btn"
             title="Save All"
+            aria-label="Save all files"
             onClick={() => void saveAll()}
           >
             <Save size={14} />
@@ -44,14 +67,24 @@ export default function WorkspaceToolbar() {
           type="button"
           className="workspace-toolbar__btn"
           title="Refresh"
+          aria-label="Refresh the workspace files"
           onClick={() => void refreshFiles()}
         >
           <RotateCw size={14} />
         </button>
 
-        <span className="workspace-toolbar__org" title="Active organization">
+        <span
+          className="workspace-toolbar__org"
+          title={
+            organization
+              ? `Active organization: ${organization.alias}`
+              : "No organization"
+          }
+        >
           <Cloud size={13} />
-          {organization ? organization.alias : "No org"}
+          <span className="workspace-toolbar__org-name">
+            {organization ? organization.alias : "No org"}
+          </span>
         </span>
 
         <span className="workspace-toolbar__divider" />

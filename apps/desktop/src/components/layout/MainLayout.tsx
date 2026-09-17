@@ -1,13 +1,22 @@
 import { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
+import { AlertTriangle, X } from "lucide-react";
 import AppHeader from "./AppHeader";
 import AppSidebar from "./AppSidebar";
 import ErrorBoundary from "../ErrorBoundary/ErrorBoundary";
+import { useOrganizationStore } from "../../store/orgStore";
 import styles from "./MainLayout.module.css";
 
 export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false);
+  // Remembered separately: the Workspace starts with the app sidebar folded to
+  // icons, because its own activity bar and explorer already take the left
+  // edge — at the 1024px minimum window the full sidebar left the editor about
+  // half the width. Expanding it there does not change other pages.
+  const [workspaceCollapsed, setWorkspaceCollapsed] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const cliWarning = useOrganizationStore((s) => s.cliWarning);
+  const [cliWarningDismissed, setCliWarningDismissed] = useState(false);
   const location = useLocation();
 
   // The Workspace page renders its own VS Code-style chrome (activity bar,
@@ -25,8 +34,12 @@ export default function MainLayout() {
 
       <div className={styles.content}>
         <AppSidebar
-          collapsed={collapsed}
-          onToggleCollapse={() => setCollapsed((c) => !c)}
+          collapsed={isWorkspace ? workspaceCollapsed : collapsed}
+          onToggleCollapse={() =>
+            isWorkspace
+              ? setWorkspaceCollapsed((c) => !c)
+              : setCollapsed((c) => !c)
+          }
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
         />
@@ -34,6 +47,23 @@ export default function MainLayout() {
         <main
           className={`${styles.main} ${isWorkspace ? styles.workspaceMain : ""}`}
         >
+          {/* Shown on the workspace route too: it is the page where an
+              unusable CLI hurts most — every deploy, retrieve and test run
+              there goes through it. */}
+          {cliWarning && !cliWarningDismissed && (
+            <div className={styles.cliWarning} role="alert">
+              <AlertTriangle size={16} />
+              <span>{cliWarning}</span>
+              <button
+                type="button"
+                className={styles.cliWarningClose}
+                aria-label="Dismiss"
+                onClick={() => setCliWarningDismissed(true)}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
           <ErrorBoundary>
             <Outlet />
           </ErrorBoundary>

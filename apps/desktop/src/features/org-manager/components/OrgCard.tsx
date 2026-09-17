@@ -1,12 +1,33 @@
+import { useState } from "react";
+
 import type { Organization } from "../types";
 
-import { openOrg, setDefaultOrg, logoutOrg } from "../../../services/tauri";
+import {
+  listOrgs,
+  logoutOrg,
+  openOrg,
+  setDefaultOrg,
+} from "../../../services/tauri";
 
 import { useOrganizationStore } from "../../../store/orgStore";
 import { Button, Badge } from "../../../components/ui";
-import { Cloud, ExternalLink, Star, LogOut, Check, MapPin } from "lucide-react";
+import {
+  Check,
+  Cloud,
+  ExternalLink,
+  Info,
+  KeyRound,
+  LogOut,
+  MapPin,
+  Star,
+} from "lucide-react";
 
 import { isProtectedOrg, protectionPrompt } from "../lib/orgProtection";
+import { confirm } from "../../../components/ui/Confirm/confirm";
+import { toast } from "../../../components/ui/Toast/toast";
+import { requestReauthentication } from "../store/reauthStore";
+import OrgDetailsDialog from "./OrgDetailsDialog";
+import { errorMessage } from "../../../lib/errors";
 
 import styles from "./OrgCard.module.css";
 
@@ -16,6 +37,7 @@ interface Props {
 
 export default function OrgCard({ org }: Props) {
   const removeOrganization = useOrganizationStore((s) => s.removeOrganization);
+  const setOrganizations = useOrganizationStore((s) => s.setOrganizations);
   const setSelectedOrganization = useOrganizationStore(
     (s) => s.setSelectedOrganization,
   );
@@ -23,44 +45,59 @@ export default function OrgCard({ org }: Props) {
     (s) => s.selectedOrganization,
   );
 
+  // Failures used to go to console.error only, so a failed logout or
+  // set-default looked like the button did nothing.
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"default" | "logout" | "open" | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+
   const isSelected = selectedOrganization?.id === org.id;
   const isProtected = isProtectedOrg(org);
   const isConnected = org.status === "Connected";
 
-  async function handleOpenOrg() {
+  async function run(action: typeof busy, work: () => Promise<void>) {
+    setBusy(action);
+    setError(null);
     try {
-      await openOrg(org.username);
-    } catch (error) {
-      console.error("Failed to open org:", error);
+      await work();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(null);
     }
   }
 
-  async function handleSelect() {
-    setSelectedOrganization(org);
-  }
+  const handleOpenOrg = () => run("open", () => openOrg(org.username));
 
-  async function handleSetDefault() {
-    try {
+  const handleSetDefault = () =>
+    run("default", async () => {
       await setDefaultOrg(org.username);
       setSelectedOrganization(org);
-    } catch (error) {
-      console.error(error);
-    }
-  }
+      // Re-read so the Default badge moves to this org instead of staying on
+      // the previous one.
+      setOrganizations(await listOrgs({ skipConnectionStatus: true }));
+      toast.success(`${org.alias} is now the Salesforce CLI's default org.`);
+    });
 
-  async function handleRemove() {
+  const handleLogout = async () => {
     // Production gets the full identity of what is being disconnected.
-    const message =
-      protectionPrompt(org, "Log out") ?? `Log out ${org.username}?`;
-    if (!window.confirm(message)) return;
+    const prompt = protectionPrompt(org, "Log out", "Log out") ?? {
+      title: `Log out of ${org.alias}?`,
+      message:
+        "The Salesforce CLI forgets this org's login. You can connect it again later.",
+      details: [org.username],
+      confirmLabel: "Log out",
+      tone: "danger" as const,
+    };
+    if (!(await confirm(prompt))) return;
 
-    try {
+    await run("logout", async () => {
       await logoutOrg(org.username);
-      await removeOrganization(org.id);
-    } catch (error) {
-      console.error("Failed to logout org:", error);
-    }
-  }
+      removeOrganization(org.id);
+      // The card disappears, so the outcome is reported where it stays visible.
+      toast.success(`Logged out of ${org.alias}.`);
+    });
+  };
 
   return (
     <div className={`${styles.card} ${isSelected ? styles.selected : ""}`}>
@@ -110,8 +147,33 @@ export default function OrgCard({ org }: Props) {
         </li>
       </ul>
 
+      {!isConnected && (
+        <div className={styles.expired} role="status">
+          <span>
+            {org.status === "Expired"
+              ? "The session has expired."
+              : "ForgeSF can't reach this org."}{" "}
+            Log in again to keep using it.
+          </span>
+          <Button
+            variant="primary"
+            size="sm"
+            leftIcon={<KeyRound size={14} />}
+            onClick={() => requestReauthentication(org)}
+          >
+            Re-authenticate
+          </Button>
+        </div>
+      )}
+
       {isSelected && (
         <div className={styles.activeBanner}>Active Organization</div>
+      )}
+
+      {error && (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
       )}
 
       <div className={styles.actions}>
@@ -119,7 +181,7 @@ export default function OrgCard({ org }: Props) {
           variant={isSelected ? "primary" : "secondary"}
           size="sm"
           leftIcon={<Check size={14} />}
-          onClick={handleSelect}
+          onClick={() => setSelectedOrganization(org)}
         >
           {isSelected ? "Selected" : "Select"}
         </Button>
@@ -128,7 +190,8 @@ export default function OrgCard({ org }: Props) {
           variant="secondary"
           size="sm"
           leftIcon={<ExternalLink size={14} />}
-          onClick={handleOpenOrg}
+          onClick={() => void handleOpenOrg()}
+          loading={busy === "open"}
         >
           Open Org
         </Button>
@@ -136,21 +199,37 @@ export default function OrgCard({ org }: Props) {
         <Button
           variant="ghost"
           size="sm"
-          leftIcon={<Star size={14} />}
-          onClick={handleSetDefault}
+          leftIcon={<Info size={14} />}
+          onClick={() => setShowDetails(true)}
         >
-          Set Default
+          Details
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          leftIcon={<Star size={14} />}
+          onClick={() => void handleSetDefault()}
+          loading={busy === "default"}
+          disabled={org.isDefault}
+        >
+          {org.isDefault ? "Default" : "Set Default"}
         </Button>
 
         <Button
           variant="danger"
           size="sm"
           leftIcon={<LogOut size={14} />}
-          onClick={handleRemove}
+          onClick={() => void handleLogout()}
+          loading={busy === "logout"}
         >
           Logout
         </Button>
       </div>
+
+      {showDetails && (
+        <OrgDetailsDialog org={org} onClose={() => setShowDetails(false)} />
+      )}
     </div>
   );
 }

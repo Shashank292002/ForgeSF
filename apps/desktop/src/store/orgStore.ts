@@ -20,6 +20,12 @@ interface OrganizationState {
   /** Set when the CLI could not be reached and the cached list is in use. */
   orgLoadError: string | null;
 
+  /**
+   * Set when the Salesforce CLI is missing or too old for the commands
+   * ForgeSF relies on (deploy jobs need `sf` v2).
+   */
+  cliWarning: string | null;
+
   /** Replaces the list and persists it. */
   setOrganizations: (organizations: Organization[]) => void;
 
@@ -41,13 +47,35 @@ export const useOrganizationStore = create<OrganizationState>((set) => ({
 
   orgLoadError: null,
 
+  cliWarning: null,
+
   setOrganizations: (organizations) => {
     // Persisting here too: this used to be the one mutation that did not
     // write through, so the store's contract depended on which setter ran.
     void persist("the org list", () => saveOrganizations(organizations));
 
-    set({
-      organizations,
+    set((state) => {
+      const current = state.selectedOrganization;
+      // The selected org is refreshed from the new list, so its flags
+      // (default, status) do not go stale. One that disappeared — logged out
+      // through the CLI — hands the selection to the next org.
+      const selected = current
+        ? (organizations.find((org) => org.id === current.id) ??
+          organizations[0] ??
+          null)
+        : null;
+
+      if (selected?.id !== current?.id) {
+        void persist("the selected org", () =>
+          saveSelectedOrganizationId(selected?.id ?? null),
+        );
+      }
+
+      return {
+        organizations,
+        selectedOrganization: selected,
+        selectedOrganizationId: selected?.id ?? null,
+      };
     });
   },
 

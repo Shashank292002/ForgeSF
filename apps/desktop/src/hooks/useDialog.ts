@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 
 const FOCUSABLE = [
   "a[href]",
@@ -16,28 +16,39 @@ const FOCUSABLE = [
  * out into the page behind them, and a screen reader announced nothing to say
  * the rest of the app was inert.
  *
- * Returns a ref to spread onto the dialog container.
+ * Returns a callback ref to spread onto the dialog container.
+ *
+ * The effect is keyed on the container node only. It used to depend on
+ * `onClose`, and callers pass inline arrows, so every re-render — each
+ * keystroke in the retrieve overlay's search box — tore the trap down and
+ * rebuilt it, yanking focus to the first control mid-typing. `onClose` is read
+ * through an effect event instead, and a callback ref (rather than a
+ * `useRef`) lets the trap attach when the container mounts after the first
+ * render.
  */
 export function useDialog(onClose: () => void) {
-  const ref = useRef<HTMLDivElement>(null);
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  const close = useEffectEvent(onClose);
 
   useEffect(() => {
-    const container = ref.current;
     if (!container) return;
 
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
-    // Focus the first control, or the container itself when there is none.
+    // Focus the control marked `data-autofocus`, else the first control, else
+    // the container itself. Confirmations mark theirs: the first control is
+    // the header's close button, which is rarely what a keyboard user wants.
     const focusable = () =>
       Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
         (node) => node.offsetParent !== null,
       );
-    (focusable()[0] ?? container).focus();
+    const preferred = container.querySelector<HTMLElement>("[data-autofocus]");
+    (preferred ?? focusable()[0] ?? container).focus();
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.stopPropagation();
-        onClose();
+        close();
         return;
       }
       if (event.key !== "Tab") return;
@@ -68,7 +79,7 @@ export function useDialog(onClose: () => void) {
       // Returning focus to the trigger is what makes keyboard use continuous.
       previouslyFocused?.focus?.();
     };
-  }, [onClose]);
+  }, [container]);
 
-  return ref;
+  return setContainer;
 }

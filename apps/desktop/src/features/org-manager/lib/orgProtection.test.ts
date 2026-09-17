@@ -32,11 +32,23 @@ describe("isProtectedOrg", () => {
 });
 
 describe("protectionPrompt", () => {
-  it("names the org and the action", () => {
+  it("names the org and the action, as a destructive confirmation", () => {
     const prompt = protectionPrompt(org("Production"), "Log out");
-    expect(prompt).toContain("Log out");
-    expect(prompt).toContain("me@acme.com");
-    expect(prompt).toContain("acme.my.salesforce.com");
+    expect(prompt?.title).toBe("Log out on a production org?");
+    expect(prompt?.details).toEqual([
+      "acme",
+      "me@acme.com",
+      "https://acme.my.salesforce.com",
+    ]);
+    expect(prompt?.confirmLabel).toBe("Log out");
+    expect(prompt?.tone).toBe("danger");
+  });
+
+  it("takes a shorter button label", () => {
+    expect(
+      protectionPrompt(org("Production"), "Run anonymous Apex", "Run Apex")
+        ?.confirmLabel,
+    ).toBe("Run Apex");
   });
 
   it("returns null when no confirmation is warranted", () => {

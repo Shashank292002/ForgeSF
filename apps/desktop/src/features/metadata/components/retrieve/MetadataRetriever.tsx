@@ -13,8 +13,6 @@ import { useMetadataStore } from "../../../../store/metadataStore";
 import useCurrentOrg from "../../../../hooks/useCurrentOrg";
 import { useOrganizationStore } from "../../../../store/orgStore";
 import {
-  listMetadataComponents,
-  listMetadataTypes,
   retrieveMetadataProgress,
   onRetrieveProgress,
   cancelRetrieve,
@@ -23,13 +21,27 @@ import type {
   RetrieveMode,
   RetrieveProgressEntry,
   RetrieveResult,
+  RetrieveTypeResult,
 } from "../../types";
 import type { MetadataCategoryKey } from "../../lib/categories";
-import { buildRetrieveSpecs } from "../../lib/retrieveSpecs";
+import { resolveMetadataSpecs } from "../../lib/metadataSpecs";
+import { needsExplicitMembers, withChildTypes } from "../../lib/typeCatalog";
 import { useWorkspaceStore } from "../../../workspace/store/workspaceStore";
+import { errorMessage } from "../../../../lib/errors";
+import { recordActivity } from "../../../../store/activityStore";
+import { offerReauthentication } from "../../../org-manager/lib/orgErrors";
 import { useDialog } from "../../../../hooks/useDialog";
+import {
+  useComponentLister,
+  useComponentsOfTypes,
+  useMetadataTypes,
+} from "../../hooks/useOrgMetadata";
 import { mixingWarningFor } from "../../../workspace/lib/workspaceGuards";
 import { setWorkspaceRetrievedOrg } from "../../../workspace/services/workspaceService";
+import {
+  confirm,
+  previewList,
+} from "../../../../components/ui/Confirm/confirm";
 
 import RetrieveSelectStep from "./RetrieveSelectStep";
 import RetrieveComponentsStep from "./RetrieveComponentsStep";
@@ -53,6 +65,29 @@ const STEPS: Array<{ key: Step; label: string }> = [
   { key: "results", label: "Results" },
 ];
 
+const ITEM_STATUSES = new Set<RetrieveProgressEntry["status"]>([
+  "running",
+  "completed",
+  "failed",
+  "skipped",
+]);
+
+function summarise(items: RetrieveTypeResult[], cancelled: boolean) {
+  const succeeded = items.filter((item) => item.status === "completed").length;
+  const failed = items.filter((item) => item.status === "failed").length;
+  const skipped = items.filter((item) => item.status === "skipped").length;
+  return {
+    succeeded,
+    failed,
+    success: failed === 0 && !cancelled,
+    summary: cancelled
+      ? `Cancelled — ${succeeded} type(s) retrieved, ${skipped} skipped.`
+      : failed === 0
+        ? `Retrieved metadata from ${succeeded} type(s) successfully.`
+        : `Finished with ${failed} failed type(s).`,
+  };
+}
+
 /** Folds a retry's outcome into the run it is retrying, keyed by metadata type. */
 function mergeRetrieveResults(
   previous: RetrieveResult,
@@ -62,19 +97,31 @@ function mergeRetrieveResults(
   for (const item of retry.items) byKind.set(item.kind, item);
 
   const items = [...byKind.values()];
-  const succeeded = items.filter((item) => item.status === "completed").length;
-  const failed = items.length - succeeded;
-
   return {
     items,
     total: items.length,
-    succeeded,
-    failed,
-    success: failed === 0,
-    summary:
-      failed === 0
-        ? `Retrieved metadata from ${succeeded} type(s) successfully.`
-        : `Finished with ${failed} failed type(s).`,
+    cancelled: retry.cancelled,
+    ...summarise(items, retry.cancelled),
+  };
+}
+
+/** Adds outcomes decided before the CLI ran (nothing to retrieve, listing failed). */
+function withPreflightItems(
+  result: RetrieveResult,
+  preflight: RetrieveTypeResult[],
+): RetrieveResult {
+  if (preflight.length === 0) return result;
+  const items = [
+    ...result.items.filter(
+      (item) => !preflight.some((extra) => extra.kind === item.kind),
+    ),
+    ...preflight,
+  ];
+  return {
+    items,
+    total: items.length,
+    cancelled: result.cancelled,
+    ...summarise(items, result.cancelled),
   };
 }
 
@@ -87,8 +134,7 @@ export default function MetadataRetriever({
   // Needed to name the previous org in the mixing warning.
   const organizations = useOrganizationStore((s) => s.organizations);
 
-  const metadata = useMetadataStore((s) => s.metadata);
-  const setMetadata = useMetadataStore((s) => s.setMetadata);
+  const setOrg = useMetadataStore((s) => s.setOrg);
   const selectedTypes = useMetadataStore((s) => s.selectedTypes);
   const setSelectedTypes = useMetadataStore((s) => s.setSelectedTypes);
   const toggleType = useMetadataStore((s) => s.toggleType);
@@ -99,39 +145,35 @@ export default function MetadataRetriever({
   const clearMemberSelection = useMetadataStore((s) => s.clearMemberSelection);
 
   const refreshFiles = useWorkspaceStore((s) => s.refreshFiles);
+  const reloadCleanBuffers = useWorkspaceStore((s) => s.reloadCleanBuffers);
   const setActiveView = useWorkspaceStore((s) => s.setActiveView);
+
+  // The org's type list, from the shared cache: reopening the wizard, or
+  // visiting Deployments after it, reuses the listing instead of re-running
+  // `sf org list metadata-types`.
+  const username = organization?.username;
+  const types = useMetadataTypes(username);
+
+  // Child types (CustomField, ValidationRule…) are only reachable through
+  // their parent's `childXmlNames`; offer them as types of their own.
+  const catalog = useMemo(() => withChildTypes(types.data ?? []), [types.data]);
 
   const [step, setStep] = useState<Step>("select");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<Category>("all");
-  const [loadingTypes, setLoadingTypes] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  // Kept separate from `loadError`: a failed retrieve used to render as a
-  // "could not load metadata types" error when stepping back to step 1.
+  // Kept separate from the type list's own error: a failed retrieve used to
+  // render as a "could not load metadata types" error when stepping back to
+  // step 1.
   const [retrieveError, setRetrieveError] = useState<string | null>(null);
   const [entries, setEntries] = useState<RetrieveProgressEntry[]>([]);
   // Set the moment Cancel is pressed; the run still finishes its batch.
   const [cancelling, setCancelling] = useState(false);
+  // Listing the members of folder and child types before the retrieve.
+  const [preparing, setPreparing] = useState(false);
   const [result, setResult] = useState<RetrieveResult | null>(null);
   const unlistenRef = useRef<(() => void) | null>(null);
-  // Mirrors `cancelling` for reads inside the async run, which does not
-  // see state updates made after its closure was created.
-  const cancelledRef = useRef(false);
 
-  // Component picker state — cached per type so navigating between steps
-  // doesn't refetch `sf org list metadata` for types already loaded.
-  //
-  // The cache carries the org it was listed from and is *derived* away when the
-  // org changes, rather than being cleared from an effect. Components belong to
-  // one org; keeping them across a switch showed — and would have retrieved —
-  // the previous org's members.
-  const [cache, setCache] = useState<{
-    org: string | null;
-    byKind: Record<string, string[]>;
-  }>({ org: null, byKind: {} });
   const [activeTypeRaw, setActiveType] = useState<string | null>(null);
-  const [loadingType, setLoadingType] = useState<string | null>(null);
-  const [compsError, setCompsError] = useState<string | null>(null);
 
   useEffect(() => () => unlistenRef.current?.(), []);
 
@@ -140,99 +182,43 @@ export default function MetadataRetriever({
     if (mode === "overlay") onClose?.();
   });
 
-  // Loads the org's metadata types. The `cancelled` flag drops results from a
-  // superseded org: switching orgs mid-fetch used to let the slower response
-  // land and overwrite the newer org's type list.
-  const username = organization?.username;
-
+  // Selections belong to one org: switching clears them.
   useEffect(() => {
-    if (!username) return;
+    if (username) setOrg(username);
+  }, [username, setOrg]);
 
-    let cancelled = false;
-
-    const loadTypes = async () => {
-      setLoadingTypes(true);
-      setLoadError(null);
-      try {
-        const types = await listMetadataTypes(username);
-        if (!cancelled) setMetadata(username, types);
-      } catch (error) {
-        if (!cancelled) {
-          setLoadError(
-            error instanceof Error
-              ? error.message
-              : "Could not load metadata types.",
-          );
-        }
-      } finally {
-        if (!cancelled) setLoadingTypes(false);
-      }
-    };
-
-    void loadTypes();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [username, setMetadata]);
-
-  // Both derived: an org switch invalidates the cache and any active type
-  // without an effect having to reset them.
-  const componentsCache = useMemo(
-    () => (cache.org === username ? cache.byKind : {}),
-    [cache, username],
-  );
   const activeType =
     activeTypeRaw && selectedTypes.includes(activeTypeRaw)
       ? activeTypeRaw
       : null;
 
+  // The chosen type's components, and the lists already held for the others.
+  const components = useComponentsOfTypes(username, selectedTypes, activeType);
+  const componentsCache = components.byKind;
+  const listComponents = useComponentLister();
+
+  // Listing types or components can fail because the session expired, and the
+  // fix is the same wherever it happened.
+  const listingError = types.error ?? components.error;
+  useEffect(() => {
+    if (listingError) offerReauthentication(listingError, organization);
+  }, [listingError, organization]);
+
   // Specs used for the current/last run, keyed by metadata type, so failed
   // types can be retried with exactly the same component selection.
   const specsByKindRef = useRef<Record<string, string[]>>({});
 
-  const ensureComponents = useCallback(
-    async (kind: string) => {
-      if (!organization) return;
-      // Only skip when this exact type is already cached or already in
-      // flight. The old `|| loadingType` guard dropped the request whenever
-      // *any* type was loading, so clicking a second type did nothing.
-      if (componentsCache[kind] || loadingType === kind) return;
-      const org = organization.username;
-      setLoadingType(kind);
-      setCompsError(null);
-
-      // Writes are scoped to the org that was current when the request
-      // started, so a slow response cannot land in a newer org's cache.
-      const store = (members: string[]) =>
-        setCache((prev) =>
-          prev.org === org
-            ? { org, byKind: { ...prev.byKind, [kind]: members } }
-            : { org, byKind: { [kind]: members } },
-        );
-
-      try {
-        const members = await listMetadataComponents(kind, org);
-        store(members);
-      } catch (error) {
-        // Some types can't be listed (folder-managed, child types, etc.).
-        // Cache an empty list and surface the reason in the picker.
-        store([]);
-        setCompsError(
-          error instanceof Error
-            ? error.message
-            : "Could not list components for this type.",
-        );
-      } finally {
-        setLoadingType(null);
-      }
-    },
-    [organization, componentsCache, loadingType],
-  );
-
   const runRetrieve = useCallback(
-    async (specs: string[], merge = false) => {
-      if (!organization || specs.length === 0) return;
+    async (
+      specs: string[],
+      merge = false,
+      preflight: RetrieveTypeResult[] = [],
+    ) => {
+      if (!organization) return;
+
+      // The workspace the files are written to is fixed at the start, so
+      // switching org mid-run cannot redirect — or mislabel — the retrieve.
+      const workspaceId = useWorkspaceStore.getState().openWorkspaceId;
 
       // Remember which specs belong to which type for retry support.
       const byKind: Record<string, string[]> = {};
@@ -248,6 +234,8 @@ export default function MetadataRetriever({
 
       const kinds = Object.keys(byKind);
       let unlisten: (() => void) | null = null;
+      // A previous run's Cancel must not leave this one looking cancelled.
+      setCancelling(false);
       setResult(null);
       setRetrieveError(null);
       setStep("retrieve");
@@ -259,15 +247,41 @@ export default function MetadataRetriever({
           message: "",
         })),
       );
+
+      if (kinds.length === 0) {
+        // Everything was decided up front (e.g. no components exist).
+        setResult(
+          withPreflightItems(
+            {
+              success: true,
+              summary: "",
+              items: [],
+              total: 0,
+              succeeded: 0,
+              failed: 0,
+              cancelled: false,
+            },
+            preflight,
+          ),
+        );
+        setEntries([]);
+        setStep("results");
+        return;
+      }
+
       try {
         unlisten = await onRetrieveProgress((event) => {
           if (event.phase === "complete" || !event.kind) return;
+          const status = event.status as RetrieveProgressEntry["status"] | null;
           setEntries((prev) =>
             prev.map((entry) =>
               entry.kind === event.kind
                 ? {
                     ...entry,
-                    status: event.status ?? entry.status,
+                    status:
+                      status && ITEM_STATUSES.has(status)
+                        ? status
+                        : entry.status,
                     retrieved: event.retrieved ?? entry.retrieved,
                     message: event.message ?? entry.message,
                   }
@@ -277,9 +291,13 @@ export default function MetadataRetriever({
         });
         unlistenRef.current = unlisten;
 
-        const res = await retrieveMetadataProgress(
-          organization.username,
-          specs,
+        const res = withPreflightItems(
+          await retrieveMetadataProgress(
+            organization.username,
+            specs,
+            workspaceId,
+          ),
+          preflight,
         );
         // Retrying one failed type used to replace the whole result, wiping
         // every type that had already succeeded from the summary.
@@ -292,33 +310,64 @@ export default function MetadataRetriever({
             status: item.status,
             retrieved: item.retrieved,
             message: item.message ?? "",
+            warnings: item.warnings,
           })),
         );
-        void refreshFiles();
+
+        // Retrieved files replaced what was on disk. Open tabs without
+        // unsaved edits reload, so they show — and later save — the new copy.
+        const workspace = useWorkspaceStore.getState();
+        if (workspace.openWorkspaceId === workspaceId) {
+          void refreshFiles();
+          void reloadCleanBuffers();
+          // The retrieved files now match the org.
+          void workspace.loadChanges();
+        }
 
         // Remember which org wrote this tree, so a later retrieve from a
         // different one can warn first.
-        const { activeWorkspaceId } = useWorkspaceStore.getState();
-        if (activeWorkspaceId && organization.id) {
-          void setWorkspaceRetrievedOrg(activeWorkspaceId, organization.id)
+        if (workspaceId && organization.id) {
+          void setWorkspaceRetrievedOrg(workspaceId, organization.id)
             .then(() => useWorkspaceStore.getState().loadWorkspaces())
             .catch(() => {
               // Best-effort bookkeeping — never fail a completed retrieve.
             });
         }
+        // The main retrieve path recorded nothing, so the Dashboard's
+        // activity card only ever showed retrieves run from a manifest.
+        recordActivity({
+          kind: res.failed > 0 ? "error" : "success",
+          source: "retrieve",
+          title: res.cancelled
+            ? `Retrieve from ${organization.alias} cancelled`
+            : `Retrieved ${res.succeeded} of ${res.total} metadata type${
+                res.total === 1 ? "" : "s"
+              }`,
+          detail: res.summary || undefined,
+          org: organization.alias,
+        });
         setStep("results");
       } catch (error) {
-        setRetrieveError(
-          error instanceof Error ? error.message : String(error),
-        );
+        const message = errorMessage(error);
+        setRetrieveError(message);
+        recordActivity({
+          kind: "error",
+          source: "retrieve",
+          title: `Retrieve from ${organization.alias} failed`,
+          detail: message,
+          org: organization.alias,
+        });
+        offerReauthentication(error, organization);
         setResult({
           success: false,
-          summary: String(error),
+          summary: message,
+          cancelled: false,
           items: kinds.map((kind) => ({
             kind,
             status: "failed" as const,
             retrieved: 0,
             message: null,
+            warnings: [],
           })),
           total: kinds.length,
           succeeded: 0,
@@ -331,7 +380,7 @@ export default function MetadataRetriever({
         unlistenRef.current = null;
       }
     },
-    [organization, refreshFiles],
+    [organization, refreshFiles, reloadCleanBuffers],
   );
 
   /** Retries the failed types using their original component selection. */
@@ -345,58 +394,116 @@ export default function MetadataRetriever({
     [runRetrieve],
   );
 
-  const startRetrieve = useCallback(() => {
+  const startRetrieve = useCallback(async () => {
+    if (!organization) return;
+
     // Retrieving overwrites local source in place. Files with unsaved editor
     // buffers are the one case the CLI's own conflict detection cannot see —
     // it compares against what is on disk, not what is open — so warn here.
-    const dirty = Object.entries(useWorkspaceStore.getState().dirty)
+    const workspaceState = useWorkspaceStore.getState();
+    const dirty = Object.entries(workspaceState.dirty)
       .filter(([, isDirty]) => isDirty)
       .map(([path]) => path);
 
     if (dirty.length > 0) {
-      const preview = dirty.slice(0, 8).join("\n  ");
-      const more = dirty.length > 8 ? `\n  …and ${dirty.length - 8} more` : "";
-      const proceed = window.confirm(
-        `${dirty.length} file(s) have unsaved changes:\n\n  ${preview}${more}\n\n` +
+      const proceed = await confirm({
+        title: "Retrieve over unsaved changes?",
+        message:
           "Retrieving overwrites files on disk. Your unsaved edits stay in the " +
-          "editor, but saving afterwards will overwrite what was just retrieved.\n\n" +
-          "Continue?",
-      );
+          "editor, but saving them afterwards overwrites what was just retrieved.",
+        details: previewList(dirty),
+        confirmLabel: "Retrieve anyway",
+        tone: "danger",
+      });
       if (!proceed) return;
     }
 
     // Retrieving from a different org than the one that populated this tree
     // merges two orgs' metadata into one force-app directory, with no way to
     // tell afterwards which file came from where.
-    const workspaceState = useWorkspaceStore.getState();
-    const activeWorkspace = workspaceState.workspaces.find(
-      (item) => item.id === workspaceState.activeWorkspaceId,
+    const openWorkspace = workspaceState.workspaces.find(
+      (item) => item.id === workspaceState.openWorkspaceId,
     );
-    const mixing = mixingWarningFor(activeWorkspace, organization?.id);
+    const mixing = mixingWarningFor(openWorkspace, organization.id);
 
     if (mixing) {
       const previous =
         organizations.find((org) => org.id === mixing.previousOrgId)?.alias ??
         "another org";
-      const proceed = window.confirm(
-        `"${mixing.workspaceName}" was last retrieved from ${previous}.
-
-` +
-          `Retrieving from ${organization?.alias ?? "this org"} will mix metadata ` +
-          `from two orgs in the same force-app tree.
-
-Continue?`,
-      );
+      const proceed = await confirm({
+        title: "Mix metadata from two orgs?",
+        message:
+          `"${mixing.workspaceName}" was last retrieved from ${previous}. ` +
+          `Retrieving from ${organization.alias} mixes metadata from two orgs ` +
+          "in the same force-app tree, with no way to tell afterwards which file came from where.",
+        confirmLabel: "Retrieve anyway",
+        tone: "danger",
+      });
       if (!proceed) return;
     }
 
-    void runRetrieve(buildRetrieveSpecs(selectedTypes, selectedMembers));
+    // Folder and child types have no wildcard: with nothing picked, every
+    // member has to be named, so list them first.
+    const byName = new Map(catalog.map((type) => [type.xmlName, type]));
+    const needLists = selectedTypes.filter(
+      (kind) =>
+        needsExplicitMembers(byName.get(kind)) &&
+        (selectedMembers[kind] ?? []).length === 0,
+    );
+
+    const fullMembers: Record<string, string[]> = {};
+    const preflight: RetrieveTypeResult[] = [];
+
+    if (needLists.length > 0) {
+      setPreparing(true);
+      try {
+        for (const kind of needLists) {
+          try {
+            // Cached from the picker when the type was opened there.
+            fullMembers[kind] = await listComponents(
+              organization.username,
+              kind,
+            );
+          } catch (error) {
+            preflight.push({
+              kind,
+              status: "failed",
+              retrieved: 0,
+              message: `Could not list its components: ${errorMessage(error)}`,
+              warnings: [],
+            });
+          }
+        }
+      } finally {
+        setPreparing(false);
+      }
+    }
+
+    const failedToList = new Set(preflight.map((item) => item.kind));
+    const { specs, empty } = resolveMetadataSpecs(
+      selectedTypes.filter((kind) => !failedToList.has(kind)),
+      selectedMembers,
+      fullMembers,
+    );
+    for (const kind of empty) {
+      preflight.push({
+        kind,
+        status: "skipped",
+        retrieved: 0,
+        message: "The org has no components of this type.",
+        warnings: [],
+      });
+    }
+
+    void runRetrieve(specs, false, preflight);
   }, [
     runRetrieve,
     selectedTypes,
     selectedMembers,
     organization,
     organizations,
+    catalog,
+    listComponents,
   ]);
 
   /**
@@ -522,10 +629,14 @@ Continue?`,
       <div className="mr-body">
         {step === "select" && (
           <RetrieveSelectStep
-            metadata={metadata}
+            metadata={catalog}
             selectedTypes={selectedTypes}
-            loading={loadingTypes}
-            error={loadError}
+            loading={types.isFetching}
+            error={
+              types.error
+                ? errorMessage(types.error, "Could not load metadata types.")
+                : null
+            }
             category={category}
             search={search}
             onSearch={setSearch}
@@ -538,12 +649,19 @@ Continue?`,
 
         {step === "components" && (
           <RetrieveComponentsStep
-            metadata={metadata}
+            metadata={catalog}
             types={selectedTypes}
             activeType={activeType}
             componentsCache={componentsCache}
-            loadingType={loadingType}
-            error={compsError}
+            loading={components.loading}
+            error={
+              components.error
+                ? errorMessage(
+                    components.error,
+                    "Could not list components for this type.",
+                  )
+                : null
+            }
             selectedMembers={selectedMembers}
             onActiveType={setActiveType}
             onToggleMember={toggleMember}
@@ -551,7 +669,6 @@ Continue?`,
               setMembers(kind, componentsCache[kind] ?? [])
             }
             onClear={clearMemberSelection}
-            onEnsureComponents={(kind) => void ensureComponents(kind)}
             onBack={() => setStep("select")}
           />
         )}
@@ -560,7 +677,9 @@ Continue?`,
           <RetrieveProgressView entries={entries} total={entries.length} />
         )}
 
-        {step === "results" && retrieveError && (
+        {/* The result carries the error in its summary; this only covers a
+            failure before any result existed. */}
+        {step === "results" && retrieveError && !result && (
           <div className="mr-empty">
             <p>{retrieveError}</p>
           </div>
@@ -583,8 +702,8 @@ Continue?`,
           <div className="mr-footer__status">
             {step === "select" ? (
               <span>
-                <b>{selectedTypes.length}</b>
-                metadata type{selectedTypes.length === 1 ? "" : "s"} selected
+                <b>{selectedTypes.length}</b> metadata type
+                {selectedTypes.length === 1 ? "" : "s"} selected
               </span>
             ) : step === "components" ? (
               <span>
@@ -613,7 +732,7 @@ Continue?`,
                 <button
                   type="button"
                   className="mr-btn mr-btn--primary"
-                  disabled={selectedTypes.length === 0 || loadingTypes}
+                  disabled={selectedTypes.length === 0 || types.isFetching}
                   onClick={() => {
                     if (
                       activeType === null ||
@@ -633,16 +752,18 @@ Continue?`,
                   type="button"
                   className="mr-btn mr-btn--ghost"
                   onClick={() => setStep("select")}
+                  disabled={preparing}
                 >
                   Back
                 </button>
                 <button
                   type="button"
                   className="mr-btn mr-btn--primary"
-                  disabled={selectedTypes.length === 0}
-                  onClick={startRetrieve}
+                  disabled={selectedTypes.length === 0 || preparing}
+                  onClick={() => void startRetrieve()}
                 >
-                  Retrieve <ArrowRight size={14} />
+                  {preparing ? "Listing components…" : "Retrieve"}
+                  {!preparing && <ArrowRight size={14} />}
                 </button>
               </>
             ) : (
@@ -658,7 +779,6 @@ Continue?`,
                   disabled={cancelling}
                   onClick={() => {
                     setCancelling(true);
-                    cancelledRef.current = true;
                     void cancelRetrieve();
                   }}
                 >

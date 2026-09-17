@@ -1,0 +1,7 @@
+# Normalise text files to LF in the repository and the working tree.
+#
+# Prettier (and `pnpm format:check` in CI) expects LF. With Git for Windows'
+# default `core.autocrlf=true`, every checkout on Windows became CRLF and the
+# format check reported ~100 files as unformatted, including on a Windows CI
+# runner. Binary files are detected automatically by `text=auto`.
+* text=auto eol=lf

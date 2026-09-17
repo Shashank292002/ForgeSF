@@ -3,6 +3,8 @@ import {
   Cloud,
   Database,
   Files,
+  FileCode,
+  FlaskConical,
   UploadCloud,
   Loader2,
   Search,
@@ -30,6 +32,18 @@ const ITEMS: Item[] = [
     label: "Pending Changes",
     icon: UploadCloud,
     shortcut: "Ctrl+Shift+G",
+  },
+  {
+    id: "tests",
+    label: "Apex Tests",
+    icon: FlaskConical,
+    shortcut: "Ctrl+Shift+T",
+  },
+  {
+    id: "manifests",
+    label: "Manifests",
+    icon: FileCode,
+    shortcut: "Ctrl+Shift+X",
   },
   {
     id: "metadata",
@@ -69,7 +83,11 @@ export default function ActivityBar() {
               type="button"
               className={`fw-activitybar__item ${isActive ? "is-active" : ""}`}
               title={`${item.label} (${item.shortcut})`}
-              aria-label={item.label}
+              // The badge is a number in a dot; the label says what it counts.
+              aria-label={
+                badge === null ? item.label : `${item.label}, ${badge} unsaved`
+              }
+              aria-pressed={isActive}
               onClick={() => setActiveView(item.id)}
             >
               <Icon size={22} strokeWidth={1.75} />
@@ -101,7 +119,12 @@ export default function ActivityBar() {
               ? `Connected to ${organization.alias}`
               : "No org connected — open Org Manager"
           }
-          aria-label="Active organization"
+          // The green dot means connected; the label has to say it.
+          aria-label={
+            organization
+              ? `Organization ${organization.alias}, connected`
+              : "No organization connected"
+          }
           onClick={() => navigate("/organizations")}
         >
           <Cloud size={19} strokeWidth={1.75} />

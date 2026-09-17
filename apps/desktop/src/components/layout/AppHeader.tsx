@@ -1,4 +1,5 @@
-import { Search, Menu, User } from "lucide-react";
+import { Menu, User } from "lucide-react";
+import ForgeMark from "../brand/ForgeMark";
 
 import { useOrganizationStore } from "../../store/orgStore";
 
@@ -23,7 +24,9 @@ export default function AppHeader({ onToggleSidebar }: AppHeaderProps) {
         </button>
 
         <div className={styles.brand}>
-          <span className={styles.logo}>⚡</span>
+          <span className={styles.logo}>
+            <ForgeMark size={22} />
+          </span>
           <div className={styles.brandText}>
             <span className={styles.title}>ForgeSF</span>
             <span className={styles.tagline}>Salesforce Toolkit</span>
@@ -31,15 +34,8 @@ export default function AppHeader({ onToggleSidebar }: AppHeaderProps) {
         </div>
       </div>
 
-      <div className={styles.search}>
-        <Search size={17} />
-        <input
-          className={styles.searchInput}
-          disabled
-          title="Global search is not implemented yet"
-          placeholder="Search (coming soon)"
-        />
-      </div>
+      {/* Global search is not built yet, so no disabled box advertises it;
+          it returns with the command palette. */}
 
       <div className={styles.actions}>
         <div className={styles.orgPill}>

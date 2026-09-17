@@ -2,36 +2,8 @@
    ForgeSF Metadata Retriever — step-by-step org→workspace flow
    ══════════════════════════════════════════════════════════════ */
 
-.mr {
-  /* Slightly lifted off the app background so the overlay reads as a layer
-     above the page rather than part of it. */
-  --mr-bg: #0e1218;
-  --mr-surface: #141a24;
-  --mr-raised: #1b2230;
-  --mr-border: rgba(148, 163, 184, 0.14);
-  --mr-border-strong: rgba(148, 163, 184, 0.28);
-  --mr-text: #e8edf7;
-  --mr-text-2: #9aa7c2;
-  --mr-muted: #6b7a99;
-  /* Brand and semantic colours are the app's, not this surface's — these were
-     byte-identical copies of the --color-* tokens under a different prefix. */
-  --mr-brand: var(--color-primary);
-  --mr-brand-2: var(--color-secondary);
-  --mr-success: var(--color-success);
-  --mr-success-soft: var(--color-success-soft);
-  --mr-warning: var(--color-warning);
-  --mr-error: var(--color-error);
-  --mr-error-soft: var(--color-error-soft);
-  --mr-info: var(--color-info);
-  --mr-info-soft: var(--color-info-soft);
-  --mr-accent: var(--color-accent);
-  /* A tighter radius scale than the app's --radius-* on purpose: this is a
-     dense, panel-heavy surface. */
-  --mr-rad-lg: 18px;
-  --mr-rad: 12px;
-  --mr-rad-sm: 9px;
-  --mr-mono: var(--font-mono);
-}
+/* The --mr-* palette is defined, with the app's other tokens, in
+   src/styles/variables.css. */
 
 /* ─── Overlay scrim (workspace mode) ────────────────────────── */
 .mr-overlay {
@@ -580,6 +552,10 @@
 .mr-prog-row.is-failed {
   border-color: var(--mr-error-soft);
 }
+.mr-prog-row.is-skipped {
+  border-style: dashed;
+  color: var(--mr-muted);
+}
 
 .mr-prog-row__icon {
   width: 26px;
@@ -712,6 +688,37 @@
 }
 .mr-result-row.is-ok {
   border-color: var(--mr-success-soft);
+}
+.mr-result-row.is-skipped {
+  border-style: dashed;
+}
+.mr-result-row.is-skipped .mr-result-row__icon {
+  color: var(--mr-muted);
+}
+.mr-result-group .mr-result-row {
+  margin-bottom: 0;
+}
+.mr-result-group {
+  margin-bottom: 8px;
+}
+
+/* Non-fatal problems a retrieve reported for one type. */
+.mr-result-warnings {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 6px 14px 2px 50px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--mr-warning);
+}
+.mr-result-warnings li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .mr-result-row__icon {

@@ -1,74 +1,37 @@
-import { useEffect } from "react";
+import { useEffect, useEffectEvent } from "react";
 
-import { useWorkspaceStore } from "../store/workspaceStore";
-import type { SidebarView } from "../types";
-
-/** Activity-bar views reachable by chord, matching the tooltips they advertise. */
-const VIEW_CHORDS: Record<string, SidebarView> = {
-  e: "explorer",
-  f: "search",
-  g: "scm",
-  m: "metadata",
-};
+import { useAskStore } from "../../../components/ui/Confirm/confirm";
+import { matchesKeys } from "../lib/keybindings";
+import { commandKeys, type WorkspaceCommand } from "../lib/workspaceCommands";
 
 /**
- * Global workspace keyboard shortcuts, matching VS Code muscle memory:
- *   Ctrl/Cmd+S           – save the active file
- *   Ctrl/Cmd+Shift+S     – save all files
- *   Ctrl/Cmd+B           – toggle the side bar
- *   Ctrl/Cmd+`           – toggle the terminal panel
- *   Ctrl/Cmd+Shift+E/F/G/M – Explorer / Search / Source Control / Metadata
- *   Ctrl/Cmd+,           – workspace settings
- *
- * Everything except Ctrl+S/B/`/Shift+F was advertised in the activity-bar
- * tooltips without ever being implemented.
+ * The workspace's keyboard shortcuts: each command's `keys`, run while the
+ * workspace is on screen. Ctrl+P, Ctrl+Shift+P, Ctrl+G and Ctrl+Shift+F are
+ * new; the rest (Ctrl+S, Ctrl+B, Ctrl+`, Ctrl+Shift+E/G/M…) keep working as
+ * before, now declared in the command list the palette shows.
  */
-export function useWorkspaceShortcuts(): void {
+export function useWorkspaceShortcuts(commands: WorkspaceCommand[]): void {
+  const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    // Handled already: the editor's own bindings (its Ctrl+G, say) win.
+    if (event.defaultPrevented) return;
+    // A question is waiting for an answer; nothing else happens meanwhile.
+    if (useAskStore.getState().queue.length > 0) return;
+
+    const command = commands.find((item) =>
+      commandKeys(item).some((keys) => matchesKeys(event, keys)),
+    );
+    if (!command) return;
+
+    // The shortcut is the app's even when the command doesn't apply right
+    // now, so the webview never prints (Ctrl+P) or saves the page (Ctrl+S).
+    event.preventDefault();
+    if (command.when && !command.when()) return;
+    void command.run();
+  });
+
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-
-      const mod = event.ctrlKey || event.metaKey;
-      if (!mod) return;
-
-      const key = event.key.toLowerCase();
-      const store = useWorkspaceStore.getState();
-
-      if (key === "s") {
-        event.preventDefault();
-        if (event.shiftKey) {
-          void store.saveAll();
-        } else if (store.selectedFile) {
-          void store.saveFile(store.selectedFile);
-        }
-        return;
-      }
-
-      if (key === "b" && !event.shiftKey) {
-        event.preventDefault();
-        store.toggleSidebar();
-        return;
-      }
-
-      if (event.key === "`") {
-        event.preventDefault();
-        store.togglePanel();
-        return;
-      }
-
-      if (event.key === ",") {
-        event.preventDefault();
-        store.setActiveView("settings");
-        return;
-      }
-
-      if (event.shiftKey && VIEW_CHORDS[key]) {
-        event.preventDefault();
-        store.setActiveView(VIEW_CHORDS[key]);
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    const listener = (event: KeyboardEvent) => onKeyDown(event);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
   }, []);
 }

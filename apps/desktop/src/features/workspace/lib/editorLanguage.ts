@@ -55,4 +55,42 @@ export function languageForPath(path: string): string {
   }
 }
 
-export const DEFAULT_LANGUAGE = "plaintext";
+/** Languages the bundled editor can format: its web language services. */
+const FORMATTABLE = new Set([
+  "javascript",
+  "typescript",
+  "json",
+  "html",
+  "css",
+  "scss",
+  "less",
+]);
+
+/**
+ * Whether Format Document does anything for a language. There is no Apex or
+ * XML formatter, and the Format button used to do nothing for them in silence.
+ */
+export function hasFormatter(language: string): boolean {
+  return FORMATTABLE.has(language);
+}
+
+/** A language's name for people: "Apex", "JavaScript", "Plain Text". */
+export function languageLabel(language: string): string {
+  const labels: Record<string, string> = {
+    apex: "Apex",
+    javascript: "JavaScript",
+    typescript: "TypeScript",
+    json: "JSON",
+    html: "HTML",
+    css: "CSS",
+    scss: "SCSS",
+    less: "Less",
+    xml: "XML",
+    markdown: "Markdown",
+    sql: "SQL",
+    yaml: "YAML",
+    shell: "Shell",
+    plaintext: "Plain Text",
+  };
+  return labels[language] ?? language;
+}

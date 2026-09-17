@@ -1,0 +1,100 @@
+/* Editor preferences in the workspace sidebar. Prefixed `fw-` like the rest
+   of the workspace's panels, which share one global stylesheet convention. */
+
+.fw-wssettings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 14px;
+  overflow-y: auto;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.fw-wssettings__intro {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.fw-wssettings__row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fw-wssettings__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.fw-wssettings__value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.fw-wssettings__row input[type="range"] {
+  width: 100%;
+  accent-color: var(--color-primary);
+}
+
+.fw-wssettings__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.fw-wssettings__check input {
+  margin-top: 2px;
+  accent-color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.fw-wssettings__check span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--color-text);
+}
+
+.fw-wssettings__check small {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.fw-wssettings__reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 7px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.fw-wssettings__reset:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.fw-wssettings__reset:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

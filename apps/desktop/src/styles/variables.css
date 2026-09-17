@@ -17,6 +17,19 @@
   --gradient-accent: linear-gradient(135deg, #22d3ee 0%, #2dd4bf 100%);
   --gradient-warm: linear-gradient(135deg, #fbbf24 0%, #fb7185 100%);
 
+  /* ─── Metadata categories ───────────────────────────────────────
+     Read by `metadata/lib/categories.ts` for each category's icon. They
+     were referenced in eight places and declared in none, so every icon
+     fell back to inherited colour and the categories looked identical. */
+  --cat-objects: #38bdf8;
+  --cat-apex: #a78bfa;
+  --cat-automation: #34d399;
+  --cat-data: #fbbf24;
+  --cat-access: #fb7185;
+  --cat-integration: #22d3ee;
+  --cat-ui: #f472b6;
+  --cat-other: #94a3b8;
+
   /* ─── Surfaces ──────────────────────────────────────────────── */
   --color-background: #060913;
   --color-surface: #0d1424;
@@ -76,4 +89,92 @@
   --font-mono:
     "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo,
     "Roboto Mono", monospace;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Scoped palettes
+   ───────────────────────────────────────────────────────────────
+   Two surfaces deliberately look different from the rest of the app,
+   so they carry their own tokens. They live here, beside the palette
+   they differ from, rather than in the component files — three sets of
+   tokens in three places read as drift, and no one could see at a glance
+   which values were shared and which were chosen.
+
+   Anything whose *meaning* is shared — brand, semantic status colours,
+   fonts, motion — refers to a token above rather than repeating a value.
+   ═══════════════════════════════════════════════════════════════ */
+
+/*
+ * The Workspace deliberately wears VS Code's palette rather than the app's
+ * purple/cyan brand: it is a code editor, and developers read these greys as
+ * "editor chrome". That is a design decision, not drift — so the surface
+ * colours below are literal, while anything whose *meaning* is shared with the
+ * rest of the app (brand accent, fonts, motion) refers to the brand tokens so
+ * there is one definition rather than two that drift apart.
+ */
+.forge-ws {
+  --fw-bg: #1e1e1e;
+  --fw-bg-dark: #181818;
+  --fw-bg-drop: #1b1b1b;
+  --fw-bg-activitybar: #333333;
+  --fw-bg-sidebar: #252526;
+  --fw-bg-header: #2d2d30;
+  --fw-bg-tab: #2d2d30;
+  --fw-bg-tab-active: #1e1e1e;
+  --fw-bg-hover: rgba(255, 255, 255, 0.08);
+  --fw-bg-active: #094771;
+  --fw-bg-statusbar: #007acc;
+  --fw-bg-input: #3c3c3c;
+  --fw-border: #3c3c3c;
+  --fw-border-soft: #333333;
+  --fw-text: #cccccc;
+  --fw-text-secondary: #9d9d9d;
+  --fw-muted: #858585;
+  --fw-accent: #0078d4;
+  --fw-accent-soft: rgba(0, 120, 212, 0.18);
+  --fw-brand: var(--color-primary);
+
+  /* VS Code's own semantic colours — chosen to sit against the greys above
+     rather than the app's brighter brand set. */
+  --fw-success: #89d185;
+  --fw-warning: #cca700;
+  --fw-error: #f14c4c;
+  --fw-info: #75beff;
+
+  --fw-font-mono: var(--font-mono);
+  --fw-motion-fast: var(--motion-fast);
+}
+
+/* The retrieve overlay: a denser, slightly lifted panel surface. */
+.mr {
+  /* Slightly lifted off the app background so the overlay reads as a layer
+     above the page rather than part of it. */
+  --mr-bg: #0e1218;
+  --mr-surface: #141a24;
+  --mr-raised: #1b2230;
+  /* The same lines as the rest of the app; they were separate copies, one of
+     them two hundredths of an alpha step apart. */
+  --mr-border: var(--color-border);
+  --mr-border-strong: var(--color-border-strong);
+  --mr-text: #e8edf7;
+  --mr-text-2: #9aa7c2;
+  --mr-muted: #6b7a99;
+  /* Brand and semantic colours are the app's, not this surface's — these were
+     byte-identical copies of the --color-* tokens under a different prefix. */
+  --mr-brand: var(--color-primary);
+  --mr-brand-2: var(--color-secondary);
+  --mr-success: var(--color-success);
+  --mr-success-soft: var(--color-success-soft);
+  --mr-warning: var(--color-warning);
+  --mr-error: var(--color-error);
+  --mr-error-soft: var(--color-error-soft);
+  --mr-info: var(--color-info);
+  --mr-info-soft: var(--color-info-soft);
+  --mr-accent: var(--color-accent);
+  /* A tighter radius scale than the app's --radius-* on purpose: this is a
+     dense, panel-heavy surface. */
+  --mr-rad-lg: 18px;
+  --mr-rad: 12px;
+  --mr-rad-sm: 9px;
+  --mr-mono: var(--font-mono);
 }

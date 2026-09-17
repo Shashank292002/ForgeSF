@@ -2,7 +2,7 @@ dist
 
 # The developer's retrieved Salesforce source — formatting it would
 # rewrite metadata that came from their org.
-workspace
+/workspace
 
 node_modules
 src-tauri/target

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { DiffEditor } from "@monaco-editor/react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { DiffEditor, type DiffOnMount } from "@monaco-editor/react";
 import { ArrowLeft, Check, FileWarning, GitCompare, X } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
@@ -7,19 +7,31 @@ import { useDialog } from "../../../hooks/useDialog";
 import { readDiffPair } from "../services/workspaceService";
 import { languageForPath } from "../lib/editorLanguage";
 import { registerApexLanguage, defineForgeTheme } from "../lib/apexLanguage";
+// Side-effect import — see WorkspaceEditor: configures the bundled Monaco.
+import "../lib/monaco";
 import type { Monaco } from "../lib/monaco";
 import { getBaseName } from "../lib/workspaceUtils";
+import { errorMessage } from "../../../lib/errors";
 import type { DiffEntry, DiffPair, DiffStatus } from "../types";
 
 import "./WorkspaceDiff.css";
 
-const STATUS_LABEL: Record<DiffStatus, string> = {
-  changed: "Changed",
-  identical: "Identical",
-  localOnly: "Local only",
-  orgOnly: "Org only",
-  binary: "Not a text file",
-};
+/**
+ * What each status is called. "Local" and "Org" are the two sides of a Diff
+ * Check; when two orgs are compared they become the orgs' own names, so a row
+ * says which org has the file rather than a word that fits neither.
+ */
+function statusLabels(sides: { source: string; target: string } | null) {
+  const left = sides ? sides.source : "Local";
+  const right = sides ? sides.target : "Org";
+  return {
+    changed: "Changed",
+    identical: "Identical",
+    localOnly: `Only in ${left}`,
+    orgOnly: `Only in ${right}`,
+    binary: "Not a text file",
+  } satisfies Record<DiffStatus, string>;
+}
 
 /** Sort order: what needs attention first. */
 const STATUS_RANK: Record<DiffStatus, number> = {
@@ -35,6 +47,65 @@ function handleBeforeMount(monaco: Monaco) {
   defineForgeTheme(monaco);
 }
 
+type StandaloneDiffEditor = Parameters<DiffOnMount>[0];
+
+/**
+ * Monaco's diff editor, read-only: the org on the left, the workspace right.
+ *
+ * `@monaco-editor/react` disposes a diff editor's models before the editor
+ * itself when it unmounts, which Monaco rejects ("TextModel got disposed
+ * before DiffEditorWidget model got reset") every time a diff was closed. The
+ * wrapper keeps its models instead, and they are released here — detached
+ * first — from a layout effect, whose cleanup runs before the wrapper's own.
+ */
+function OrgDiffEditor({
+  path,
+  original,
+  modified,
+}: {
+  path: string;
+  original: string;
+  modified: string;
+}) {
+  const editorRef = useRef<StandaloneDiffEditor | null>(null);
+
+  useLayoutEffect(
+    () => () => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const models = editor.getModel();
+      editor.setModel(null);
+      models?.original.dispose();
+      models?.modified.dispose();
+    },
+    [],
+  );
+
+  return (
+    <DiffEditor
+      height="100%"
+      theme="forge-dark"
+      language={languageForPath(path)}
+      original={original}
+      modified={modified}
+      keepCurrentOriginalModel
+      keepCurrentModifiedModel
+      beforeMount={handleBeforeMount}
+      onMount={(editor) => {
+        editorRef.current = editor;
+      }}
+      options={{
+        readOnly: true,
+        renderSideBySide: true,
+        fontSize: 13,
+        scrollBeyondLastLine: false,
+        automaticLayout: true,
+        minimap: { enabled: false },
+      }}
+    />
+  );
+}
+
 /**
  * Diff Check overlay: the workspace on the right, the org on the left.
  *
@@ -43,9 +114,14 @@ function handleBeforeMount(monaco: Monaco) {
  */
 export default function WorkspaceDiff() {
   const session = useWorkspaceStore((state) => state.diffSession);
+  // Set when two orgs are being compared; a plain Diff Check has none, and
+  // the sides are then the workspace and the org.
+  const sides = useWorkspaceStore((state) => state.diffSides);
+  const labels = statusLabels(sides);
   const loading = useWorkspaceStore((state) => state.diffLoading);
   const error = useWorkspaceStore((state) => state.diffError);
   const closeDiff = useWorkspaceStore((state) => state.closeDiff);
+  const workspaceId = useWorkspaceStore((state) => state.openWorkspaceId);
 
   const [selected, setSelected] = useState<string | null>(null);
   const [pair, setPair] = useState<DiffPair | null>(null);
@@ -81,11 +157,21 @@ export default function WorkspaceDiff() {
       setPair(null);
       setPairError(null);
       try {
-        const result = await readDiffPair(session.sessionDir, active);
+        // An org copy stored under a different folder layout carries its own
+        // path; the pair is read from there.
+        const orgPath =
+          session.entries.find((entry) => entry.path === active)?.orgPath ??
+          null;
+        const result = await readDiffPair(
+          session.sessionId,
+          active,
+          orgPath,
+          workspaceId,
+        );
         if (!cancelled) setPair(result);
       } catch (caught) {
         if (!cancelled) {
-          setPairError(caught instanceof Error ? caught.message : String(caught));
+          setPairError(errorMessage(caught));
         }
       }
     };
@@ -95,7 +181,7 @@ export default function WorkspaceDiff() {
     return () => {
       cancelled = true;
     };
-  }, [session, active]);
+  }, [session, active, workspaceId]);
 
   const changedCount = entries.filter((e) => e.status !== "identical").length;
 
@@ -120,6 +206,7 @@ export default function WorkspaceDiff() {
               type="button"
               className="fw-diff__back"
               title="Back to the file list"
+              aria-label="Back to the file list"
               onClick={() => setSelected(null)}
             >
               <ArrowLeft size={15} />
@@ -135,7 +222,10 @@ export default function WorkspaceDiff() {
               {active ? getBaseName(active) : (session?.target ?? "Diff Check")}
             </span>
             <span className="fw-diff__sub">
-              {active ?? "Local workspace compared with the org"}
+              {active ??
+                (sides
+                  ? `${sides.source} compared with ${sides.target}`
+                  : "Local workspace compared with the org")}
             </span>
           </div>
 
@@ -143,6 +233,7 @@ export default function WorkspaceDiff() {
             type="button"
             className="fw-diff__close"
             title="Close"
+            aria-label="Close the diff"
             onClick={closeDiff}
           >
             <X size={16} />
@@ -172,6 +263,14 @@ export default function WorkspaceDiff() {
                   : `${changedCount} file(s) differ from the org.`}
               </div>
 
+              {session.warnings.length > 0 && (
+                <ul className="fw-diff__warnings" role="status">
+                  {session.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              )}
+
               <div className="fw-diff__list">
                 {entries.map((entry) => (
                   <button
@@ -185,7 +284,7 @@ export default function WorkspaceDiff() {
                     title={entry.path}
                   >
                     <span className="fw-diff__status">
-                      {STATUS_LABEL[entry.status]}
+                      {labels[entry.status]}
                     </span>
                     <span className="fw-diff__path">{entry.path}</span>
                     <span className="fw-diff__lines">
@@ -211,24 +310,13 @@ export default function WorkspaceDiff() {
           {!loading && !error && active && !pairError && pair && (
             <div className="fw-diff__editor">
               <div className="fw-diff__legend">
-                <span>Org</span>
-                <span>Workspace</span>
+                <span>{sides ? sides.target : "Org"}</span>
+                <span>{sides ? sides.source : "Workspace"}</span>
               </div>
-              <DiffEditor
-                height="100%"
-                theme="forge-dark"
-                language={languageForPath(active)}
+              <OrgDiffEditor
+                path={active}
                 original={pair.org}
                 modified={pair.local}
-                beforeMount={handleBeforeMount}
-                options={{
-                  readOnly: true,
-                  renderSideBySide: true,
-                  fontSize: 13,
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  minimap: { enabled: false },
-                }}
               />
             </div>
           )}

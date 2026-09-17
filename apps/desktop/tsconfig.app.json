@@ -21,6 +21,9 @@
     "jsx": "react-jsx",
 
     /* Linting */
+    // On by default in TS 6, but stated here so a future config change cannot
+    // relax it without someone noticing.
+    "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,

@@ -4,4 +4,8 @@ import type { RetrieveResultItem } from "./RetrieveResultItem";
 /**
  * Aggregated outcome of a retrieve run (with per-type detail).
  */
-export type RetrieveResult = { success: boolean, summary: string, items: Array<RetrieveResultItem>, total: number, succeeded: number, failed: number, };
+export type RetrieveResult = { success: boolean, summary: string, items: Array<RetrieveResultItem>, total: number, succeeded: number, failed: number, 
+/**
+ * True when the run was stopped early; unprocessed types are `skipped`.
+ */
+cancelled: boolean, };

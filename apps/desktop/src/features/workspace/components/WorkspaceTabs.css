@@ -124,7 +124,24 @@
   white-space: nowrap;
 }
 
-.fw-tabs-menu button:hover {
+.fw-tabs-menu button:hover,
+.fw-tabs-menu button:focus-visible {
   background: var(--fw-bg-hover);
   color: var(--fw-text);
+  outline: none;
+}
+
+.fw-tabs-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  background: transparent;
+}
+
+/* Keyboard focus on a tab */
+.fw-tab:focus {
+  outline: none;
+}
+.fw-tab:focus-visible {
+  outline: 1px solid var(--fw-accent);
+  outline-offset: -1px;
 }

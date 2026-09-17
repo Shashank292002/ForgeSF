@@ -5,9 +5,15 @@
  */
 export type DiffEntry = { 
 /**
- * Workspace-relative path, `/` separated.
+ * Workspace-relative path, `/` separated. For an org-only file, where it
+ * would sit in the workspace.
  */
 path: string, 
+/**
+ * Where the org's copy sits in the session, when that differs from
+ * `path` (the org's folder layout differs from the workspace's).
+ */
+orgPath: string | null, 
 /**
  * `changed` | `identical` | `localOnly` | `orgOnly` | `binary`
  */

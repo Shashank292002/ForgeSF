@@ -1,11 +1,31 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { editor } from "monaco-editor";
 import Editor from "@monaco-editor/react";
-import { FileText, Search, Sparkles } from "lucide-react";
+import {
+  AlertTriangle,
+  FileText,
+  FileWarning,
+  Search,
+  Sparkles,
+} from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
-import { languageForPath } from "../lib/editorLanguage";
+import {
+  hasFormatter,
+  languageForPath,
+  languageLabel,
+} from "../lib/editorLanguage";
 import { registerApexLanguage, defineForgeTheme } from "../lib/apexLanguage";
+// Side-effect import: points @monaco-editor/react at the bundled Monaco and
+// its workers. The `import type` below is erased at compile time, so without
+// this line the editor fell back to a CDN that the app's CSP blocks.
+import "../lib/monaco";
+import { useApexTestStore } from "../store/apexTestStore";
+import {
+  editorOptions,
+  usePreferencesStore,
+} from "../../../store/preferencesStore";
+import { uncoveredLinesFor } from "../lib/apexTests";
 import type { Monaco } from "../lib/monaco";
 import { getBaseName } from "../lib/workspaceUtils";
 import WorkspaceTabs from "./WorkspaceTabs";
@@ -25,6 +45,17 @@ export default function WorkspaceEditor() {
   const loadingContent = useWorkspaceStore((state) =>
     file ? Boolean(state.loadingContent[file]) : false,
   );
+  const loadError = useWorkspaceStore((state) =>
+    file ? (state.loadErrors[file] ?? null) : null,
+  );
+  const diskConflict = useWorkspaceStore((state) =>
+    file ? Boolean(state.diskConflicts[file]) : false,
+  );
+  const reloadFromDisk = useWorkspaceStore((state) => state.reloadFromDisk);
+  const keepBufferOverDisk = useWorkspaceStore(
+    (state) => state.keepBufferOverDisk,
+  );
+  const selectFile = useWorkspaceStore((state) => state.selectFile);
   const updateFileContent = useWorkspaceStore(
     (state) => state.updateFileContent,
   );
@@ -34,23 +65,156 @@ export default function WorkspaceEditor() {
   const openFolder = useWorkspaceStore((state) => state.openFolder);
   const openRetrieve = useWorkspaceStore((state) => state.openRetrieve);
 
+  const reveal = useWorkspaceStore((state) => state.editorReveal);
+  const openFiles = useWorkspaceStore((state) => state.openFiles);
+  const setEditorInfo = useWorkspaceStore((state) => state.setEditorInfo);
+
+  // Coverage from the last test run, drawn in the gutter of the class it
+  // belongs to.
+  const uncoveredByClass = useApexTestStore((state) => state.uncoveredByClass);
+
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const [wrap, setWrap] = useState(false);
-  const [minimap, setMinimap] = useState(false);
+  const monacoRef = useRef<Monaco | null>(null);
+  // Counts editor mounts: the editor unmounts while a file loads, and a
+  // position waiting to be shown needs the new instance.
+  const [mounts, setMounts] = useState(0);
+  const revealedSeq = useRef(0);
+  /** Files the editor has created a model for, so closed ones can be freed. */
+  const modelPaths = useRef(new Set<string>());
+  // Settings hold what the editor starts as; the toolbar toggles override it
+  // for this session, so a quick look at a wide file does not change a
+  // preference.
+  const preferences = usePreferencesStore();
+  const [wrap, setWrap] = useState(preferences.editorWordWrap);
+  const [minimap, setMinimap] = useState(preferences.editorMinimap);
+
+  const language = file ? languageForPath(file) : "plaintext";
+  const canFormat = hasFormatter(language);
 
   const runAction = (id: string) => {
     void editorRef.current?.getAction(id)?.run();
   };
 
-  const handleMount = (instance: editor.IStandaloneCodeEditor) => {
+  const handleMount = (
+    instance: editor.IStandaloneCodeEditor,
+    monaco: Monaco,
+  ) => {
     editorRef.current = instance;
+    monacoRef.current = monaco;
+    setMounts((count) => count + 1);
     instance.onDidChangeCursorPosition((event) => {
       setCursorPosition({
         line: event.position.lineNumber,
         column: event.position.column,
       });
     });
+
+    // The status bar shows what the editor detected, not a fixed "Spaces: 4".
+    const reportInfo = () => {
+      const model = instance.getModel();
+      if (!model) return;
+      const options = model.getOptions();
+      setEditorInfo({
+        insertSpaces: options.insertSpaces,
+        tabSize: options.tabSize,
+        eol: model.getEOL() === "\r\n" ? "CRLF" : "LF",
+      });
+    };
+    reportInfo();
+    instance.onDidChangeModel(reportInfo);
+    instance.onDidChangeModelOptions(reportInfo);
   };
+
+  // Nothing to describe without an editor on screen.
+  const showsEditor = Boolean(file) && !loadingContent && !loadError;
+  useEffect(() => {
+    if (!showsEditor) setEditorInfo(null);
+  }, [showsEditor, setEditorInfo]);
+
+  // Frees the model of each closed tab, and its undo history with it. They
+  // used to stay in memory for the whole session — and since workspaces for
+  // different orgs share paths, a file opened later at the same path in
+  // another workspace inherited the old model's undo history.
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    if (!monaco) return;
+    if (file) modelPaths.current.add(file);
+    const open = new Set(openFiles);
+    for (const path of modelPaths.current) {
+      if (open.has(path)) continue;
+      monaco.editor.getModel(monaco.Uri.parse(path))?.dispose();
+      modelPaths.current.delete(path);
+    }
+  }, [openFiles, file, mounts]);
+
+  // Marks the lines the last Apex test run never reached, in the gutter and
+  // down the right-hand overview ruler. Uses a decorations collection rather
+  // than `deltaDecorations`, so the marks follow edits instead of drifting.
+  useEffect(() => {
+    const instance = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!instance || !monaco) return;
+
+    const collection = instance.createDecorationsCollection([]);
+    const apply = () => {
+      const model = instance.getModel();
+      const lines = file ? uncoveredLinesFor(file, uncoveredByClass) : [];
+      if (!model || lines.length === 0) {
+        collection.clear();
+        return;
+      }
+      collection.set(
+        lines
+          .filter((line) => line <= model.getLineCount())
+          .map((line) => ({
+            range: new monaco.Range(line, 1, line, 1),
+            options: {
+              isWholeLine: true,
+              className: "fw-uncovered-line",
+              linesDecorationsClassName: "fw-uncovered-gutter",
+              overviewRuler: {
+                color: "rgba(241, 76, 76, 0.55)",
+                position: monaco.editor.OverviewRulerLane.Right,
+              },
+              hoverMessage: {
+                value: "Not covered by the last Apex test run.",
+              },
+            },
+          })),
+      );
+    };
+
+    apply();
+    return () => collection.clear();
+  }, [file, uncoveredByClass, mounts, loadingContent]);
+
+  // Puts the cursor on a search match or a Quick Open line. The file may
+  // still be loading when the request arrives, so this waits until the editor
+  // holds that file, then acts once.
+  useEffect(() => {
+    const instance = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!reveal || reveal.seq === revealedSeq.current) return;
+    if (!instance || !monaco || !file || reveal.path !== file) return;
+    if (loadingContent) return;
+    const model = instance.getModel();
+    if (!model || model.uri.toString() !== monaco.Uri.parse(file).toString()) {
+      return;
+    }
+    revealedSeq.current = reveal.seq;
+
+    if (reveal.line !== null) {
+      // The file may have changed since it was searched.
+      const line = Math.min(Math.max(reveal.line, 1), model.getLineCount());
+      const lastColumn = model.getLineMaxColumn(line);
+      const column = Math.min(Math.max(reveal.column, 1), lastColumn);
+      const end = Math.min(column + reveal.length, lastColumn);
+      const range = new monaco.Range(line, column, line, end);
+      instance.setSelection(range);
+      instance.revealRangeInCenterIfOutsideViewport(range);
+    }
+    if (reveal.focus) instance.focus();
+  }, [reveal, file, loadingContent, mounts]);
 
   if (!file) {
     return (
@@ -98,6 +262,32 @@ export default function WorkspaceEditor() {
     );
   }
 
+  // An unreadable file gets a notice, never an editor: an empty buffer here
+  // could be typed into and saved over the real (binary or missing) file.
+  if (loadError) {
+    return (
+      <div className="workspace-editor workspace-editor--empty">
+        <WorkspaceTabs />
+        <div className="workspace-editor__empty-body" role="alert">
+          <span className="workspace-editor__empty-mark">
+            <FileWarning size={34} strokeWidth={1.5} />
+          </span>
+          <h3>{getBaseName(file)} can&rsquo;t be opened in the editor</h3>
+          <p>{loadError}</p>
+          <div className="workspace-editor__empty-actions">
+            <button
+              type="button"
+              className="fw-btn"
+              onClick={() => void selectFile(file)}
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="workspace-editor">
       <WorkspaceTabs />
@@ -105,7 +295,7 @@ export default function WorkspaceEditor() {
       <div className="workspace-editor__chrome">
         <div className="workspace-editor__breadcrumbs" title={file}>
           <span className="workspace-editor__lang">
-            {languageForPath(file).toUpperCase()}
+            {language.toUpperCase()}
           </span>
           <span className="workspace-editor__sep">/</span>
           <span className="workspace-editor__file">{getBaseName(file)}</span>
@@ -115,7 +305,12 @@ export default function WorkspaceEditor() {
           <button
             type="button"
             className="workspace-editor__action"
-            title="Format Document (Shift+Alt+F)"
+            title={
+              canFormat
+                ? "Format Document (Shift+Alt+F)"
+                : `There is no formatter for ${languageLabel(language)} files yet`
+            }
+            disabled={!canFormat}
             onClick={() => runAction("editor.action.formatDocument")}
           >
             <Sparkles size={13} /> Format
@@ -132,6 +327,7 @@ export default function WorkspaceEditor() {
             type="button"
             className={`workspace-editor__action ${wrap ? "is-active" : ""}`}
             title="Toggle word wrap"
+            aria-pressed={wrap}
             onClick={() => setWrap((value) => !value)}
           >
             Wrap
@@ -140,6 +336,7 @@ export default function WorkspaceEditor() {
             type="button"
             className={`workspace-editor__action ${minimap ? "is-active" : ""}`}
             title="Toggle minimap"
+            aria-pressed={minimap}
             onClick={() => setMinimap((value) => !value)}
           >
             Minimap
@@ -147,33 +344,71 @@ export default function WorkspaceEditor() {
         </div>
       </div>
 
+      {/* The file changed on disk while it had unsaved edits here — a
+          retrieve, git, another editor. Neither side is overwritten until
+          the user picks one. */}
+      {diskConflict && (
+        <div className="workspace-editor__conflict" role="alert">
+          <AlertTriangle
+            size={15}
+            className="workspace-editor__conflict-icon"
+          />
+          <span className="workspace-editor__conflict-text">
+            <strong>{getBaseName(file)} changed on disk</strong> after you
+            started editing it. Your unsaved changes are still here.
+          </span>
+          <div className="workspace-editor__conflict-actions">
+            <button
+              type="button"
+              className="workspace-editor__action"
+              title="Discard your unsaved changes and show the file as it is on disk"
+              onClick={() => void reloadFromDisk(file)}
+            >
+              Reload from disk
+            </button>
+            <button
+              type="button"
+              className="workspace-editor__action is-active"
+              title="Keep editing; saving replaces the version on disk"
+              onClick={() => void keepBufferOverDisk(file)}
+            >
+              Keep my changes
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="workspace-editor__shell">
         <Editor
           height="100%"
           path={file}
-          language={languageForPath(file)}
+          language={language}
           theme="forge-dark"
           value={content}
           beforeMount={handleBeforeMount}
           onChange={(value) => updateFileContent(file, value ?? "")}
           onMount={handleMount}
           options={{
+            // From the preferences, through the helper that is tested for it
+            // — the two used to be written out separately and could drift.
+            // The toolbar's wrap and minimap toggles override for this
+            // session only, so they come after.
+            ...editorOptions(preferences),
             minimap: { enabled: minimap },
+            wordWrap: wrap ? "on" : "off",
             scrollBeyondLastLine: false,
-            fontSize: 13,
             fontFamily: "var(--fw-font-mono, 'JetBrains Mono', monospace)",
             fontLigatures: true,
-            wordWrap: wrap ? "on" : "off",
             automaticLayout: true,
-            tabSize: 4,
             insertSpaces: true,
             renderWhitespace: "selection",
             bracketPairColorization: { enabled: true },
             guides: { indentation: true, bracketPairs: true },
             roundedSelection: false,
             padding: { top: 8, bottom: 8 },
-            formatOnPaste: true,
-            formatOnType: true,
+            // Where no formatter exists these did nothing, silently.
+            formatOnPaste: canFormat,
+            formatOnType: canFormat,
           }}
         />
       </div>

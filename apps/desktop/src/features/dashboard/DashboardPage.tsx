@@ -11,10 +11,14 @@ import {
   CheckCircle2,
   Activity,
   Sparkles,
+  XCircle,
 } from "lucide-react";
 
 import useCurrentOrg from "../../hooks/useCurrentOrg";
 import { useOrganizationStore } from "../../store/orgStore";
+import { relativeTime, useActivityStore } from "../../store/activityStore";
+import { useNow } from "../../hooks/useNow";
+import { useWorkspaceStore } from "../workspace/store/workspaceStore";
 import { Badge, Button, Card } from "../../components/ui";
 
 import styles from "./DashboardPage.module.css";
@@ -49,9 +53,9 @@ const quickActions = [
     gradient: "var(--gradient-devtools)",
   },
   {
-    label: "Apex",
-    desc: "Anonymous Apex runner",
-    path: "/apex",
+    label: "Anonymous Apex",
+    desc: "Run Apex in Developer Tools",
+    path: "/devtools?tab=apex",
     icon: CodeXml,
     gradient: "var(--gradient-apex)",
   },
@@ -68,6 +72,16 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { organization } = useCurrentOrg();
   const orgCount = useOrganizationStore((s) => s.organizations.length);
+  const workspaceName = useWorkspaceStore((s) => s.workspaceName);
+
+  // The app's own log, not the workspace terminal: it survives a restart and
+  // covers deploys, retrieves, test runs and orgs rather than file writes.
+  const activity = useActivityStore((state) => state.events);
+  const clearActivity = useActivityStore((state) => state.clear);
+  const recentActivity = activity.slice(0, 6);
+  // Without a clock, "just now" stayed "just now" for as long as the page was
+  // open. A minute is enough for a list whose finest step is a minute.
+  const now = useNow(60_000, recentActivity.length > 0);
 
   const firstName = organization?.username
     ? organization.username.split("@")[0]
@@ -135,7 +149,7 @@ export default function DashboardPage() {
             </span>
             <div>
               <span className={styles.statValue}>
-                {organization ? "Connected" : "Idle"}
+                {organization ? organization.status : "No org"}
               </span>
               <span className={styles.statLabel}>Org Status</span>
             </div>
@@ -145,11 +159,13 @@ export default function DashboardPage() {
         <Card accent="warm" interactive className={styles.statCard}>
           <div className={styles.statInner}>
             <span className={`${styles.statIcon} ${styles.statIconWarm}`}>
-              <Rocket size={20} />
+              <FolderGit2 size={20} />
             </span>
             <div>
-              <span className={styles.statValue}>Ready</span>
-              <span className={styles.statLabel}>Deploy Pipeline</span>
+              <span className={styles.statValue} title={workspaceName}>
+                {workspaceName || "Not opened"}
+              </span>
+              <span className={styles.statLabel}>Workspace</span>
             </div>
           </div>
         </Card>
@@ -245,13 +261,48 @@ export default function DashboardPage() {
           <Card
             title="Recent Activity"
             icon={<Activity size={20} />}
-            subtitle="What's happening in your workspace"
+            subtitle="Deploys, retrieves, test runs and orgs"
+            action={
+              activity.length > 0 ? (
+                <button
+                  type="button"
+                  className={styles.activityClear}
+                  onClick={clearActivity}
+                  title="Forget this history"
+                >
+                  Clear
+                </button>
+              ) : undefined
+            }
           >
             <ul className={styles.activityList}>
-              <li>
-                <Activity size={14} />
-                <span>No recent events — start by connecting your org.</span>
-              </li>
+              {recentActivity.length === 0 ? (
+                <li>
+                  <Activity size={14} />
+                  <span>
+                    Nothing yet — deploys, retrieves, test runs and org
+                    connections will show here.
+                  </span>
+                </li>
+              ) : (
+                recentActivity.map((entry) => (
+                  <li
+                    key={entry.id}
+                    title={[entry.detail, entry.org]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  >
+                    {entry.kind === "error" ? (
+                      <XCircle size={14} />
+                    ) : (
+                      <CheckCircle2 size={14} />
+                    )}
+                    <span>
+                      {relativeTime(entry.at, now)} · {entry.title}
+                    </span>
+                  </li>
+                ))
+              )}
             </ul>
           </Card>
         </section>

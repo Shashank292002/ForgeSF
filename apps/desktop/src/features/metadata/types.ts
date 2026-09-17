@@ -7,35 +7,34 @@ export interface MetadataType {
   childXmlNames: string[];
 }
 
-export interface MetadataRetrieveResult {
-  success: boolean;
-
-  message: string;
-
-  files?: string[];
-}
-
 /** Progress row shown while metadata is being retrieved. */
 export interface RetrieveProgressEntry {
   kind: string;
-  /** "cancelled" marks a type skipped because the run was stopped early. */
-  status: "running" | "completed" | "failed" | "cancelled";
+  /** "skipped" marks a type the run never reached because it was cancelled. */
+  status: "running" | "completed" | "failed" | "skipped";
   retrieved: number;
   message: string;
+  warnings?: string[];
 }
 
 /** Outcome of a completed retrieval for a single metadata type. */
 export interface RetrieveTypeResult {
   kind: string;
-  status: "completed" | "failed";
+  /** `skipped`: not attempted, because the run was cancelled first. */
+  status: "completed" | "failed" | "skipped";
   retrieved: number;
   message: string | null;
+  /**
+   * Problems reported without failing the retrieve — typically a requested
+   * component that does not exist in the org.
+   */
+  warnings: string[];
 }
 
 /** Aggregated outcome of a retrieve run. */
 export interface RetrieveResult {
   /** True when the run stopped early because the user cancelled it. */
-  cancelled?: boolean;
+  cancelled: boolean;
   success: boolean;
   summary: string;
   items: RetrieveTypeResult[];

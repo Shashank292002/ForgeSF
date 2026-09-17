@@ -14,6 +14,9 @@ import SideBar from "./components/SideBar";
 import WorkspaceExplorer from "./components/WorkspaceExplorer";
 import WorkspaceSearch from "./components/WorkspaceSearch";
 import SourceControl from "./components/SourceControl";
+import ApexTestPanel from "./components/ApexTestPanel";
+import ManifestPanel from "./components/ManifestPanel";
+import WorkspaceSettingsPanel from "./components/WorkspaceSettingsPanel";
 import WorkspaceEditor from "./components/WorkspaceEditor";
 import WorkspacePanel from "./components/WorkspacePanel";
 import WorkspaceStatusBar from "./components/WorkspaceStatusBar";
@@ -21,7 +24,9 @@ import WorkspaceToolbar from "./components/WorkspaceToolbar";
 import MetadataLauncher from "../metadata/components/retrieve/MetadataLauncher";
 import MetadataRetriever from "../metadata/components/retrieve/MetadataRetriever";
 import WorkspaceDiff from "./components/WorkspaceDiff";
+import QuickInput from "./components/QuickInput";
 import { useWorkspaceInit } from "./hooks/useWorkspaceInit";
+import { useWorkspaceCommands } from "./hooks/useWorkspaceCommands";
 import { useWorkspaceShortcuts } from "./hooks/useWorkspaceShortcuts";
 import { useWorkspaceStore } from "./store/workspaceStore";
 
@@ -29,6 +34,8 @@ const SIDEBAR_TITLES: Record<string, string> = {
   explorer: "Explorer",
   search: "Search",
   scm: "Pending Changes",
+  tests: "Apex Tests",
+  manifests: "Manifests",
   metadata: "Metadata",
   settings: "Settings",
 };
@@ -48,11 +55,14 @@ export default function WorkspacePage() {
   // The diff overlay is open while a session is loading, failed or ready.
   const diffOpen = useWorkspaceStore(
     (state) =>
-      state.diffLoading || state.diffError !== null || state.diffSession !== null,
+      state.diffLoading ||
+      state.diffError !== null ||
+      state.diffSession !== null,
   );
 
   const { loaded, error, booting } = useWorkspaceInit();
-  useWorkspaceShortcuts();
+  const commands = useWorkspaceCommands();
+  useWorkspaceShortcuts(commands);
 
   const bottomPanelRef = useRef<ImperativePanelHandle>(null);
 
@@ -130,12 +140,10 @@ export default function WorkspacePage() {
                   {activeView === "explorer" && <WorkspaceExplorer />}
                   {activeView === "search" && <WorkspaceSearch />}
                   {activeView === "scm" && <SourceControl />}
+                  {activeView === "tests" && <ApexTestPanel />}
+                  {activeView === "manifests" && <ManifestPanel />}
                   {activeView === "metadata" && <MetadataLauncher />}
-                  {activeView === "settings" && (
-                    <div className="forge-ws__placeholder">
-                      Workspace settings are coming soon.
-                    </div>
-                  )}
+                  {activeView === "settings" && <WorkspaceSettingsPanel />}
                 </SideBar>
               </Panel>
 
@@ -181,6 +189,8 @@ export default function WorkspacePage() {
       </div>
 
       <WorkspaceStatusBar />
+
+      <QuickInput commands={commands} />
 
       {diffOpen && <WorkspaceDiff />}
 

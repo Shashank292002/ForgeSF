@@ -34,3 +34,10 @@
 .workspace-statusbar__item .spinning {
   animation: forge-boot-spin 0.9s linear infinite;
 }
+
+/* Save and deploy progress, announced to screen readers as it changes. The
+   region stays in the page even when empty — a region that appears together
+   with its text is not announced — and its items sit in the bar as usual. */
+.workspace-statusbar__live {
+  display: contents;
+}

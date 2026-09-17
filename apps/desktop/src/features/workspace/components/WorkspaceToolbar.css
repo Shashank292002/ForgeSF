@@ -65,8 +65,23 @@
   align-items: center;
   gap: 5px;
   margin: 0 6px;
+  min-width: 0;
+  max-width: 200px;
   font-size: 12px;
   color: var(--fw-text-secondary);
+}
+
+/* One line, truncated: a long alias used to wrap and push the toolbar
+   buttons out of alignment at narrow widths. */
+.workspace-toolbar__org-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-toolbar__actions {
+  min-width: 0;
 }
 
 .workspace-toolbar__cta {
@@ -122,4 +137,48 @@
   background: var(--fw-bg-hover);
   border-color: var(--fw-accent);
   color: var(--fw-text);
+}
+
+/* Go to file — opens Quick Open ----------------------------------- */
+.workspace-toolbar__goto {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 1 300px;
+  min-width: 0;
+  height: 24px;
+  margin: 0 12px;
+  padding: 0 6px 0 9px;
+  background: var(--fw-bg-input);
+  border: 1px solid var(--fw-border-soft);
+  border-radius: 5px;
+  color: var(--fw-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.workspace-toolbar__goto:hover {
+  border-color: var(--fw-border);
+  color: var(--fw-text);
+}
+.workspace-toolbar__goto:focus-visible {
+  outline: 1px solid var(--fw-accent);
+  outline-offset: -1px;
+}
+.workspace-toolbar__goto-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.workspace-toolbar__goto-keys {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border: 1px solid var(--fw-border);
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 16px;
 }

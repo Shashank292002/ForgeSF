@@ -55,8 +55,6 @@ export function languageForPath(path: string): string {
   }
 }
 
-export const DEFAULT_LANGUAGE = "plaintext";
-
 /** Languages the bundled editor can format: its web language services. */
 const FORMATTABLE = new Set([
   "javascript",

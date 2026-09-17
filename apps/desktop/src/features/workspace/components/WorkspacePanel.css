@@ -13,10 +13,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   height: 28px;
   padding: 0 6px 0 20px;
   background: var(--fw-bg-header);
   flex-shrink: 0;
+  /* It is a <button> now, so the browser's own chrome has to go. */
+  border: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-panel__bar:focus-visible {
+  outline: 1px solid var(--fw-accent, currentColor);
+  outline-offset: -1px;
 }
 
 .workspace-panel.is-closed .workspace-panel__bar {

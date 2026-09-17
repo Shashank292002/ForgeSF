@@ -2,7 +2,7 @@ import type { NavigateFunction } from "react-router-dom";
 
 import { useOrganizationStore } from "../../../store/orgStore";
 import { useWorkspaceStore } from "../store/workspaceStore";
-import { copyText } from "./clipboard";
+import { copyText } from "../../../lib/clipboard";
 import { focusPart } from "./focusParts";
 import { absolutePath, isDeployablePath } from "./workspaceUtils";
 
@@ -211,6 +211,22 @@ export function workspaceCommands(
       title: "Show Metadata",
       keys: "Ctrl+Shift+M",
       run: () => store().setActiveView("metadata"),
+    },
+    // The Activity Bar advertised both of these shortcuts, but neither was
+    // registered and neither view had a palette entry — both were mouse-only.
+    {
+      id: "view.tests",
+      category: "View",
+      title: "Show Apex Tests",
+      keys: "Ctrl+Shift+T",
+      run: () => store().setActiveView("tests"),
+    },
+    {
+      id: "view.manifests",
+      category: "View",
+      title: "Show Manifests",
+      keys: "Ctrl+Shift+X",
+      run: () => store().setActiveView("manifests"),
     },
     {
       id: "view.settings",

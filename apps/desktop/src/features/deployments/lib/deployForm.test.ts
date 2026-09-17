@@ -42,15 +42,57 @@ describe("the deploy form", () => {
     expect(
       deployFormProblem(form({ scope: "changed", changedCount: 2 })),
     ).toBeNull();
-    expect(deployFormProblem(form({ scope: "metadata" }))).toMatch(
-      /metadata type/,
-    );
+    expect(
+      deployFormProblem(
+        form({ scope: "metadata", sourceUsername: "source@example.com" }),
+      ),
+    ).toMatch(/metadata type/);
     expect(deployFormProblem(form({ scope: "paths" }))).toMatch(
       /Workspace explorer/,
     );
     expect(
       deployFormProblem(form({ scope: "paths", pathsCount: 1 })),
     ).toBeNull();
+  });
+
+  describe("the metadata scope, which is org → org", () => {
+    const metadata = (
+      overrides: Partial<Parameters<typeof deployFormProblem>[0]> = {},
+    ) =>
+      form({
+        scope: "metadata",
+        metadataCount: 1,
+        sourceUsername: "source@example.com",
+        targetUsername: "target@example.com",
+        ...overrides,
+      });
+
+    it("needs a source org before anything else", () => {
+      expect(deployFormProblem(metadata({ sourceUsername: null }))).toMatch(
+        /org to take the components from/,
+      );
+    });
+
+    it("refuses deploying an org to itself", () => {
+      expect(
+        deployFormProblem(metadata({ targetUsername: "source@example.com" })),
+      ).toMatch(/source and target orgs are the same/);
+    });
+
+    it("names a type the source org has no components of", () => {
+      expect(
+        deployFormProblem(metadata({ emptyTypes: ["ValidationRule"] })),
+      ).toMatch(/no ValidationRule components/);
+      expect(
+        deployFormProblem(
+          metadata({ emptyTypes: ["ValidationRule", "Report", "Dashboard"] }),
+        ),
+      ).toMatch(/3 selected types/);
+    });
+
+    it("accepts a source org with a type picked", () => {
+      expect(deployFormProblem(metadata())).toBeNull();
+    });
   });
 
   it("does not let a validation skip tests", () => {
@@ -101,6 +143,29 @@ describe("the deploy form", () => {
     expect(
       scopeLabel("paths", { changed: 0, metadata: [], paths: ["a", "b"] }),
     ).toBe("2 items");
+  });
+
+  // The type names alone stopped saying what went out once components could
+  // be picked one by one: "ApexClass" may be one class or four hundred.
+  it("counts the components a metadata deploy sends", () => {
+    expect(
+      scopeLabel("metadata", {
+        changed: 0,
+        metadata: ["ApexClass"],
+        components: 1,
+      }),
+    ).toBe("ApexClass (1 component)");
+    expect(
+      scopeLabel("metadata", {
+        changed: 0,
+        metadata: ["ApexClass", "Flow"],
+        components: 7,
+      }),
+    ).toBe("ApexClass, Flow (7 components)");
+    // Unknown while a whole type has not been listed: the names stand alone.
+    expect(
+      scopeLabel("metadata", { changed: 0, metadata: ["ApexClass"] }),
+    ).toBe("ApexClass");
   });
 });
 

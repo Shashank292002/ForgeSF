@@ -1,0 +1,127 @@
+/* The Manifests sidebar view: the project's package.xml files. */
+.fw-manifests {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  font-size: 12px;
+  color: var(--fw-text);
+}
+
+.fw-manifests__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fw-manifests__new {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--fw-accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fw-manifests__new:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.fw-manifests__ghost {
+  display: inline-flex;
+  padding: 5px 8px;
+  border: 1px solid var(--fw-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fw-text-secondary);
+  cursor: pointer;
+}
+
+.fw-manifests__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--fw-error);
+  line-height: 1.5;
+}
+
+.fw-manifests__empty {
+  margin: 0;
+  color: var(--fw-muted);
+  line-height: 1.55;
+}
+
+.fw-manifests__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fw-manifests__item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid var(--fw-border);
+  border-radius: 5px;
+  background: var(--fw-bg-sidebar);
+}
+
+.fw-manifests__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fw-manifests__summary,
+.fw-manifests__types {
+  font-size: 10.5px;
+  color: var(--fw-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fw-manifests__buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.fw-manifests__buttons button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--fw-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fw-text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.fw-manifests__buttons button:hover:not(:disabled) {
+  background: var(--fw-bg-hover);
+  color: var(--fw-text);
+}
+
+.fw-manifests__buttons button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

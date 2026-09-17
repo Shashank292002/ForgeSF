@@ -1,4 +1,5 @@
 import { useLocation } from "react-router-dom";
+import ForgeMark from "../brand/ForgeMark";
 import { NavLink } from "react-router-dom";
 import { ChevronLeft, X, Cloud } from "lucide-react";
 
@@ -36,7 +37,9 @@ export default function AppSidebar({
       >
         <div className={styles.topRow}>
           <div className={styles.brand}>
-            <span className={styles.logo}>⚡</span>
+            <span className={styles.logo}>
+              <ForgeMark size={20} />
+            </span>
             <span className={styles.brandName}>
               Forge<span className={styles.brandAccent}>SF</span>
             </span>

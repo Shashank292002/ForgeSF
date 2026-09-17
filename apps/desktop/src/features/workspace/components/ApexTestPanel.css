@@ -1,0 +1,358 @@
+/* The Tests sidebar view: pick what to run, then read what happened. */
+.fw-tests {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  font-size: 12px;
+  color: var(--fw-text);
+}
+
+.fw-tests__scope {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fw-tests__level {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.fw-tests__level input {
+  accent-color: var(--fw-accent);
+}
+
+/* ─── Choosing classes ──────────────────────────────────────── */
+.fw-tests__classes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fw-tests__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border: 1px solid var(--fw-border);
+  border-radius: 4px;
+  background: var(--fw-bg-input);
+  color: var(--fw-muted);
+}
+
+.fw-tests__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fw-text);
+  font: inherit;
+}
+
+.fw-tests__search input:focus {
+  outline: none;
+}
+
+.fw-tests__search button {
+  display: inline-flex;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.fw-tests__class-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fw-tests__class {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 2px;
+  cursor: pointer;
+}
+
+.fw-tests__class input {
+  accent-color: var(--fw-accent);
+}
+
+.fw-tests__empty {
+  margin: 0;
+  color: var(--fw-muted);
+  line-height: 1.5;
+}
+
+/* ─── Running ───────────────────────────────────────────────── */
+.fw-tests__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fw-tests__run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--fw-accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fw-tests__run:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.fw-tests__ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--fw-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fw-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.fw-spin {
+  animation: fw-tests-spin 1s linear infinite;
+}
+
+@keyframes fw-tests-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.fw-tests__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--fw-error);
+  line-height: 1.5;
+}
+
+/* ─── Results ───────────────────────────────────────────────── */
+.fw-tests__summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 7px 9px;
+  border-radius: 4px;
+  background: var(--fw-bg-sidebar);
+  border-left: 3px solid var(--fw-success);
+}
+
+.fw-tests__summary.is-fail {
+  border-left-color: var(--fw-error);
+}
+
+.fw-tests__outcome {
+  font-weight: 600;
+}
+
+.fw-tests__summary.is-fail .fw-tests__outcome {
+  color: var(--fw-error);
+}
+
+.fw-tests__summary.is-pass .fw-tests__outcome {
+  color: var(--fw-success);
+}
+
+.fw-tests__timing {
+  color: var(--fw-muted);
+}
+
+.fw-tests__results {
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fw-tests__row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.fw-tests__row.is-fail .fw-tests__row-head {
+  cursor: pointer;
+}
+
+.fw-tests__row-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+}
+
+.fw-tests__row.is-pass .fw-tests__row-icon {
+  color: var(--fw-success);
+}
+
+.fw-tests__row.is-fail .fw-tests__row-icon {
+  color: var(--fw-error);
+}
+
+.fw-tests__row.is-skip .fw-tests__row-icon {
+  color: var(--fw-muted);
+}
+
+.fw-tests__row-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fw-tests__row-method,
+.fw-tests__row-class {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fw-tests__row-class {
+  font-size: 10.5px;
+  color: var(--fw-muted);
+}
+
+.fw-tests__row-time {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--fw-muted);
+}
+
+.fw-tests__row-caret {
+  display: inline-flex;
+  color: var(--fw-muted);
+  transition: transform var(--fw-motion-fast);
+}
+
+.fw-tests__row-caret.is-open {
+  transform: rotate(90deg);
+}
+
+.fw-tests__trace {
+  margin: 2px 0 6px 22px;
+  padding: 7px 9px;
+  border-radius: 4px;
+  background: var(--fw-bg-dark);
+  color: var(--fw-text-secondary);
+  font-family: var(--fw-font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ─── Coverage ──────────────────────────────────────────────── */
+.fw-tests__coverage {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fw-tests__section {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fw-muted);
+}
+
+.fw-tests__coverage ul {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fw-tests__coverage-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  width: 100%;
+  padding: 2px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fw-tests__coverage-row:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.fw-tests__coverage-row:hover:not(:disabled) {
+  background: var(--fw-bg-hover);
+}
+
+.fw-tests__coverage-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fw-tests__coverage-value {
+  font-size: 10.5px;
+  color: var(--fw-success);
+}
+
+.fw-tests__coverage-value.is-low {
+  color: var(--fw-warning);
+}
+
+.fw-tests__coverage-track {
+  grid-column: 1 / -1;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--fw-bg-hover);
+  overflow: hidden;
+}
+
+.fw-tests__coverage-bar {
+  display: block;
+  height: 100%;
+  background: var(--fw-success);
+}
+
+.fw-tests__coverage-bar.is-low {
+  background: var(--fw-warning);
+}

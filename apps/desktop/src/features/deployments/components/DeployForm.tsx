@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import {
   FileDiff,
   Files,
@@ -47,13 +47,22 @@ interface DeployFormProps {
   deployProblem: string | null;
   onValidate: () => void;
   onDeploy: () => void;
+  /**
+   * What goes between the scope picker and the test options — the metadata
+   * selector. It belongs there because the order is the order of the work:
+   * choose what to send, then how to test it, then send it. Rendered after
+   * the form, the Deploy button sat above the thing being deployed.
+   */
+  children?: ReactNode;
 }
 
 const SCOPES: Array<{ kind: ScopeKind; label: string; icon: typeof Layers }> = [
   { kind: "paths", label: "Selected files", icon: Files },
   { kind: "workspace", label: "Whole workspace", icon: FolderGit2 },
   { kind: "changed", label: "Changed files", icon: FileDiff },
-  { kind: "metadata", label: "Metadata types", icon: Layers },
+  // No longer whole types only: components can be picked one by one, and the
+  // source is another org rather than the workspace.
+  { kind: "metadata", label: "Metadata", icon: Layers },
 ];
 
 const PREVIEW_LIMIT = 8;
@@ -75,6 +84,7 @@ export default function DeployForm({
   deployProblem,
   onValidate,
   onDeploy,
+  children,
 }: DeployFormProps) {
   const ids = useId();
   const changed = changes ? [...changes.modified, ...changes.added] : [];
@@ -173,7 +183,8 @@ export default function DeployForm({
 
         {value.scope === "metadata" && (
           <p className={styles.note}>
-            Whole types from the workspace — pick them in the list below.
+            Components taken from a source org and deployed to the target. Pick
+            the types below, and expand one to choose components within it.
           </p>
         )}
 
@@ -243,6 +254,8 @@ export default function DeployForm({
           </div>
         )}
       </div>
+
+      {children && <div className={styles.slot}>{children}</div>}
 
       {/* ── How ──────────────────────────────────────────────── */}
       <div className={styles.section}>
@@ -324,6 +337,14 @@ export default function DeployForm({
         </Button>
       </div>
       {problem && <p className={cls(styles.note, styles.problem)}>{problem}</p>}
+      {/* Said plainly rather than left to be discovered: a deploy adds and
+          changes components, and never removes one from the org. */}
+      <p className={styles.note}>
+        Deploys never delete. Removing a component from the org needs a
+        destructive changes manifest, which ForgeSF does not send yet — use{" "}
+        <code>sf project deploy start --post-destructive-changes</code> for
+        that.
+      </p>
     </section>
   );
 }

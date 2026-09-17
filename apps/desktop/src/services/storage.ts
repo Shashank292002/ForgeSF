@@ -56,24 +56,6 @@ export async function getOrganizations(): Promise<Organization[]> {
   return migrate(raw, version);
 }
 
-export async function removeOrganization(id: string) {
-  const organizations = await getOrganizations();
-  await saveOrganizations(organizations.filter((org) => org.id !== id));
-}
-
-export async function updateOrganization(updatedOrg: Organization) {
-  const organizations = await getOrganizations();
-  await saveOrganizations(
-    organizations.map((org) => (org.id === updatedOrg.id ? updatedOrg : org)),
-  );
-}
-
-export async function clearOrganizations() {
-  const store = await getStore();
-  await store.delete(KEY_ORGS);
-  await store.save();
-}
-
 export async function saveSelectedOrganizationId(id: string | null) {
   const store = await getStore();
   await store.set(KEY_SELECTED, id);

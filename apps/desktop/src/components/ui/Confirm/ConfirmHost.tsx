@@ -1,3 +1,5 @@
+import { useId, useState } from "react";
+
 import Button from "../Button/Button";
 import Dialog from "../Dialog/Dialog";
 import { answer, useAskStore, type PendingAsk } from "./confirm";
@@ -6,8 +8,21 @@ import styles from "./ConfirmHost.module.css";
 
 function AskDialog({ entry }: { entry: PendingAsk }) {
   const { options } = entry;
+  const inputId = useId();
+  const choiceId = useId();
+  const [text, setText] = useState(options.input?.initialValue ?? "");
+  const [choice, setChoice] = useState(options.choices?.[0]?.value ?? "");
   const dismiss = () => answer(entry.id, null);
-  const focus = options.focus ?? options.actions.at(-1)?.value;
+  // A text dialog answers with what was typed; a drop-down with what was
+  // selected. The action value only decides *that* it was confirmed, and an
+  // empty field cannot confirm at all.
+  const empty = options.input !== undefined && text.trim() === "";
+  const chose = (value: string) =>
+    answer(entry.id, options.input ? text : options.choices ? choice : value);
+  const focus =
+    options.input !== undefined
+      ? undefined
+      : (options.focus ?? options.actions.at(-1)?.value);
   const paragraphs = (options.message ?? "")
     .split(/\n\s*\n/)
     .map((text) => text.trim())
@@ -32,8 +47,9 @@ function AskDialog({ entry }: { entry: PendingAsk }) {
               key={action.value}
               variant={action.variant ?? "primary"}
               size="sm"
+              disabled={empty}
               data-autofocus={focus === action.value ? "" : undefined}
-              onClick={() => answer(entry.id, action.value)}
+              onClick={() => chose(action.value)}
             >
               {action.label}
             </Button>
@@ -52,6 +68,50 @@ function AskDialog({ entry }: { entry: PendingAsk }) {
             <li key={`${index}-${item}`}>{item}</li>
           ))}
         </ul>
+      )}
+      {options.choices && options.choices.length > 0 && (
+        <div className={styles.field}>
+          {options.choicesLabel && (
+            <label htmlFor={choiceId}>{options.choicesLabel}</label>
+          )}
+          <select
+            id={choiceId}
+            value={choice}
+            data-autofocus=""
+            onChange={(event) => setChoice(event.target.value)}
+          >
+            {options.choices.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {options.input && (
+        <div className={styles.field}>
+          {options.input.label && (
+            <label htmlFor={inputId}>{options.input.label}</label>
+          )}
+          <input
+            id={inputId}
+            type="text"
+            value={text}
+            placeholder={options.input.placeholder}
+            // Focused and selected on open, so typing replaces the old value
+            // — the same as renaming in the explorer.
+            data-autofocus=""
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => setText(event.target.value)}
+            onFocus={(event) => event.target.select()}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || empty) return;
+              event.preventDefault();
+              chose(options.actions.at(-1)?.value ?? "");
+            }}
+          />
+        </div>
       )}
     </Dialog>
   );

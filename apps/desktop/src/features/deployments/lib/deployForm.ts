@@ -8,51 +8,15 @@ import type { BadgeTone } from "../../../components/ui/Badge/Badge";
  */
 export type ScopeKind = "workspace" | "changed" | "paths" | "metadata";
 
-/** `""` leaves the choice to the org. */
-export type TestLevelValue =
-  | ""
-  | "NoTestRun"
-  | "RunSpecifiedTests"
-  | "RunLocalTests"
-  | "RunAllTestsInOrg"
-  | "RunRelevantTests";
-
-export const TEST_LEVELS: Array<{
-  value: TestLevelValue;
-  label: string;
-  hint: string;
-}> = [
-  {
-    value: "",
-    label: "Org default",
-    hint: "A validation runs local tests. A deploy runs none in a sandbox; in production, local tests run when it includes Apex.",
-  },
-  {
-    value: "NoTestRun",
-    label: "No tests",
-    hint: "Sandboxes only. Production and validations always run tests.",
-  },
-  {
-    value: "RunSpecifiedTests",
-    label: "Specified tests",
-    hint: "Only the test classes you list. Each class and trigger deployed needs 75% coverage.",
-  },
-  {
-    value: "RunLocalTests",
-    label: "Local tests",
-    hint: "Every test in the org except those from managed packages.",
-  },
-  {
-    value: "RunAllTestsInOrg",
-    label: "All tests",
-    hint: "Every test in the org, managed packages included.",
-  },
-  {
-    value: "RunRelevantTests",
-    label: "Relevant tests",
-    hint: "Tests Salesforce judges relevant to the deployed components.",
-  },
-];
+// The levels live in `lib/testLevels` so Settings, the deploy form and the
+// Apex test panel name them the same way. Re-exported here because this is
+// where the deploy form has always imported them from.
+export {
+  TEST_LEVELS,
+  COVERAGE_TARGET,
+  type TestLevelValue,
+} from "../../../lib/testLevels";
+import type { TestLevelValue } from "../../../lib/testLevels";
 
 /** Test class names typed as a list: commas, spaces or new lines. */
 export function parseTestNames(input: string): string[] {
@@ -77,6 +41,16 @@ export function deployFormProblem(input: {
   changedCount: number;
   pathsCount: number;
   metadataCount: number;
+  /** Metadata scope: the org the components are taken from. */
+  sourceUsername?: string | null;
+  /** Metadata scope: the org they are deployed to, to catch source = target. */
+  targetUsername?: string | null;
+  /**
+   * Metadata scope: selected types that must name their members (folder and
+   * child types) and have none in the source org. Sending one fails in the
+   * CLI, so it is caught here with the type named.
+   */
+  emptyTypes?: string[];
 }): string | null {
   if (input.scope === "changed" && input.changedCount === 0) {
     return "No modified or added files to deploy.";
@@ -84,8 +58,22 @@ export function deployFormProblem(input: {
   if (input.scope === "paths" && input.pathsCount === 0) {
     return "Select files in the Workspace explorer, then choose Validate… there.";
   }
-  if (input.scope === "metadata" && input.metadataCount === 0) {
-    return "Pick at least one metadata type.";
+  if (input.scope === "metadata") {
+    if (!input.sourceUsername) {
+      return "Choose the org to take the components from.";
+    }
+    if (input.targetUsername && input.sourceUsername === input.targetUsername) {
+      return "The source and target orgs are the same. Choose a different target.";
+    }
+    if (input.metadataCount === 0) {
+      return "Pick at least one metadata type.";
+    }
+    const empty = input.emptyTypes ?? [];
+    if (empty.length > 0) {
+      return empty.length === 1
+        ? `The source org has no ${empty[0]} components. Clear that type or pick another.`
+        : `The source org has no components of ${empty.length} selected types (${empty.slice(0, 3).join(", ")}…). Clear them or pick others.`;
+    }
   }
   if (input.checkOnly && input.testLevel === "NoTestRun") {
     return "A validation has to run tests — pick another test level.";
@@ -103,7 +91,13 @@ export function deployFormProblem(input: {
 /** A short label for history, e.g. "3 changed files" or "ApexClass, Flow". */
 export function scopeLabel(
   scope: ScopeKind,
-  counts: { changed: number; metadata: string[]; paths?: string[] },
+  counts: {
+    changed: number;
+    metadata: string[];
+    paths?: string[];
+    /** Metadata scope: how many components the selection sends, when known. */
+    components?: number;
+  },
 ): string {
   switch (scope) {
     case "workspace":
@@ -115,10 +109,18 @@ export function scopeLabel(
       const paths = counts.paths ?? [];
       return paths.length === 1 ? paths[0] : `${paths.length} items`;
     }
-    case "metadata":
-      return counts.metadata.length <= 3
-        ? counts.metadata.join(", ")
-        : `${counts.metadata.length} metadata types`;
+    case "metadata": {
+      const types =
+        counts.metadata.length <= 3
+          ? counts.metadata.join(", ")
+          : `${counts.metadata.length} metadata types`;
+      // Now that components can be picked one by one, the type names alone no
+      // longer say what went out: "ApexClass" could be one class or four
+      // hundred.
+      const components = counts.components;
+      if (components === undefined || components <= 0) return types;
+      return `${types} (${components} component${components === 1 ? "" : "s"})`;
+    }
   }
 }
 

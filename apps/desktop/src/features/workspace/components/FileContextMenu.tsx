@@ -5,6 +5,7 @@ import {
   Download,
   FilePlus2,
   FolderPlus,
+  Sparkles,
   FolderSearch,
   GitCompare,
   Link,
@@ -26,6 +27,8 @@ export interface FileMenuActions {
   diff: (path: string) => void;
   newFile: (folder: string) => void;
   newFolder: (folder: string) => void;
+  /** Opens the generator dialog — it decides the folder from the kind. */
+  newSource: () => void;
   cut: (paths: string[]) => void;
   copy: (paths: string[]) => void;
   paste: (folder: string) => void;
@@ -155,6 +158,10 @@ export default function FileContextMenu({
       <MenuItem onSelect={() => actions.newFolder(folder)}>
         <FolderPlus size={14} />
         <span>New Folder…</span>
+      </MenuItem>
+      <MenuItem onSelect={() => actions.newSource()}>
+        <Sparkles size={14} />
+        <span>New Salesforce…</span>
       </MenuItem>
 
       <MenuSeparator className="forge-ws__context-menu__sep" />

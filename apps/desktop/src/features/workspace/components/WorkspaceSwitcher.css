@@ -43,11 +43,52 @@
   color: var(--fw-muted);
 }
 
+/* One project: the row that switches to it, plus its rename and remove
+   actions. Those stay out of the way until the row is hovered or something
+   inside it has focus. */
+.workspace-switcher__row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workspace-switcher__action {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fw-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.workspace-switcher__row:hover .workspace-switcher__action,
+.workspace-switcher__action:focus {
+  opacity: 1;
+}
+
+.workspace-switcher__action:hover,
+.workspace-switcher__action:focus-visible {
+  background: var(--fw-bg-hover);
+  color: var(--fw-text);
+  outline: none;
+}
+
 .workspace-switcher__item {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
+  /* Takes the space the row's actions leave, rather than the whole menu —
+     `width: 100%` pushed the rename and remove buttons out of sight. */
+  flex: 1;
+  min-width: 0;
   padding: 6px 10px;
   border: 0;
   border-radius: 4px;

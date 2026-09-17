@@ -6,6 +6,8 @@ import {
   newRunId,
   type ConnectOptions,
 } from "../../../services/tauri";
+import { errorMessage } from "../../../lib/errors";
+import { recordActivity } from "../../../store/activityStore";
 import { useOrganizationStore } from "../../../store/orgStore";
 import type { Organization } from "../types";
 
@@ -48,17 +50,18 @@ export function useConnectOrg(): ConnectOrgState {
         connectedAt: new Date().toISOString(),
       };
       addOrganization(connected);
+      recordActivity({
+        kind: "success",
+        source: "org",
+        title: `Connected ${connected.alias}`,
+        detail: connected.instanceUrl,
+        org: connected.alias,
+      });
       return connected;
     } catch (caught) {
       // A cancel the user asked for is not an error worth showing.
       if (!cancelled.current) {
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : typeof caught === "string"
-              ? caught
-              : "Could not connect to Salesforce.",
-        );
+        setError(errorMessage(caught, "Could not connect to Salesforce."));
       }
       return null;
     } finally {

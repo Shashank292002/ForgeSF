@@ -17,6 +17,20 @@ export interface AskAction<T extends string> {
   variant?: AskVariant;
 }
 
+/** A single-line text field in a dialog. See `prompt`. */
+export interface AskInput {
+  /** Label above the field. */
+  label?: string;
+  initialValue?: string;
+  placeholder?: string;
+}
+
+/** One entry of a dialog's drop-down. See `AskOptions.choices`. */
+export interface AskChoice<T extends string> {
+  value: T;
+  label: string;
+}
+
 export interface AskOptions<T extends string> {
   title: string;
   /** Body text. Blank lines separate paragraphs. */
@@ -29,6 +43,22 @@ export interface AskOptions<T extends string> {
   cancelLabel?: string;
   /** What has focus when the dialog opens. Defaults to the last action. */
   focus?: T | "cancel";
+  /**
+   * Adds a text field, focused on open. The promise then resolves with the
+   * typed text rather than the action's value, and the action is disabled
+   * while the field is empty. Use `prompt` rather than passing this directly.
+   */
+  input?: AskInput;
+  /**
+   * A drop-down in the body, for more answers than fit as buttons. The
+   * promise then resolves with the selected value rather than the action's.
+   *
+   * Without this, a caller with many answers had to cap them at a handful of
+   * buttons — which silently dropped the rest.
+   */
+  choices?: AskChoice<T>[];
+  /** Label above the drop-down. */
+  choicesLabel?: string;
 }
 
 export interface ConfirmOptions {
@@ -105,6 +135,40 @@ export async function confirm(options: ConfirmOptions): Promise<boolean> {
     focus: danger ? "cancel" : "confirm",
   });
   return result === "confirm";
+}
+
+export interface PromptOptions {
+  title: string;
+  message?: string;
+  details?: string[];
+  /** Label above the field. */
+  label?: string;
+  /** What the field starts with — selected, so typing replaces it. */
+  initialValue?: string;
+  placeholder?: string;
+  /** Defaults to "Save". */
+  confirmLabel?: string;
+  cancelLabel?: string;
+}
+
+/**
+ * Asks for one line of text. Resolves with the trimmed text, or null when
+ * dismissed. Replaces `window.prompt`, which some webviews do not show at all.
+ */
+export async function prompt(options: PromptOptions): Promise<string | null> {
+  const result = await ask({
+    title: options.title,
+    message: options.message,
+    details: options.details,
+    cancelLabel: options.cancelLabel,
+    actions: [{ value: "save", label: options.confirmLabel ?? "Save" }],
+    input: {
+      label: options.label,
+      initialValue: options.initialValue,
+      placeholder: options.placeholder,
+    },
+  });
+  return result === null ? null : result.trim();
 }
 
 /** A preview of paths for a dialog's detail list: the first few, then a count. */

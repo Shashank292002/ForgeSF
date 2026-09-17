@@ -21,6 +21,7 @@ import {
 } from "../lib/workspaceCommands";
 import { quickItems, quickMode, type QuickItem } from "../lib/quickOpen";
 import { cls } from "../../../lib/cls";
+import { errorMessage } from "../../../lib/errors";
 
 import "./QuickInput.css";
 
@@ -50,7 +51,7 @@ function useFileIndex(workspaceId: string | null, wanted: boolean) {
         if (!current) return;
         setIndex((previous) => ({
           ...previous,
-          error: `Could not list the workspace's files — ${error instanceof Error ? error.message : String(error)}`,
+          error: `Could not list the workspace's files — ${errorMessage(error)}`,
         }));
       },
     );

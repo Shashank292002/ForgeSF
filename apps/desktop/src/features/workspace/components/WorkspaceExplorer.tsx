@@ -22,11 +22,13 @@ import {
   Rocket,
   RotateCw,
   Search,
+  Sparkles,
   X,
 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { useWorkspaceStore } from "../store/workspaceStore";
+import NewSourceDialog from "./NewSourceDialog";
 import { useOrganizationStore } from "../../../store/orgStore";
 import type { WorkspaceFile } from "../types";
 import { iconForFile } from "../lib/fileIcons";
@@ -45,7 +47,7 @@ import {
   type FlatNode,
 } from "../lib/workspaceUtils";
 import { confirm, previewList } from "../../../components/ui/Confirm/confirm";
-import { copyText } from "../lib/clipboard";
+import { copyText } from "../../../lib/clipboard";
 import { cls } from "../../../lib/cls";
 import FileContextMenu, { type FileMenuActions } from "./FileContextMenu";
 
@@ -470,6 +472,7 @@ export default function WorkspaceExplorer() {
     null,
   );
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [newSource, setNewSource] = useState(false);
   const [menu, setMenu] = useState<MenuRequest | null>(null);
   /** The folder a drag would drop into ("" for the root), while dragging. */
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -855,6 +858,7 @@ export default function WorkspaceExplorer() {
     diff: withTreeFocus((path: string) => openDiff(path)),
     newFile: (folder) => startCreate(folder, "file"),
     newFolder: (folder) => startCreate(folder, "folder"),
+    newSource: () => setNewSource(true),
     cut: withTreeFocus((paths: string[]) => cutOrCopy("cut", paths)),
     copy: withTreeFocus((paths: string[]) => cutOrCopy("copy", paths)),
     paste: withTreeFocus((folder: string) => pasteInto(folder)),
@@ -1195,6 +1199,15 @@ export default function WorkspaceExplorer() {
           >
             <FolderPlus size={14} />
           </button>
+          <button
+            type="button"
+            className="workspace-explorer__section-tool"
+            title="New Salesforce source — class, trigger, LWC, Aura, Visualforce"
+            aria-label="New Salesforce source"
+            onClick={() => setNewSource(true)}
+          >
+            <Sparkles size={14} />
+          </button>
           <span className="workspace-explorer__section-sep" aria-hidden />
           <button
             type="button"
@@ -1459,6 +1472,8 @@ export default function WorkspaceExplorer() {
           actions={menuActions}
         />
       )}
+
+      {newSource && <NewSourceDialog onClose={() => setNewSource(false)} />}
     </section>
   );
 }

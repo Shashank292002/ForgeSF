@@ -1,24 +1,6 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Only what is specific to this app. Everything shared — node_modules, dist,
+# logs, editor and OS files, caches — is covered by the root .gitignore, and
+# repeating it here meant the two could drift apart.
 
-node_modules
-dist
-dist-ssr
+# Vite's convention for a file that must never leave the machine.
 *.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?

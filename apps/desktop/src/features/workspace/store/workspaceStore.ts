@@ -8,6 +8,7 @@ import {
   copyWorkspaceItems,
   createWorkspaceItem,
   deleteWorkspaceItems,
+  generateSource as generateSourceFiles,
   getWorkspaceRoot,
   includeCompanions,
   isChangedOnDisk,
@@ -20,8 +21,9 @@ import {
   revealWorkspaceItem,
   onTerminalOutput,
   saveWorkspaceFileContent,
-  selectWorkspaceFolder,
+  pickWorkspaceFolder,
   startTerminalCommand,
+  unwatchWorkspace,
   watchWorkspace,
   workspacePackageDirectories,
   addWorkspace as registerWorkspace,
@@ -31,6 +33,7 @@ import {
   setActiveWorkspace,
   workspaceForOrg,
   retrievePaths,
+  compareOrgs,
   diffWorkspacePath,
   clearDiffSessions,
   type WorkspaceNode,
@@ -47,12 +50,16 @@ import {
 import type {
   DeployScope,
   FileStamp,
+  GenerateRequest,
   PathChange,
   TerminalEvent,
   WorkspaceChanges,
   WorkspaceFsEvent,
 } from "@/types/generated";
 import { cancelSfCommand, newRunId } from "../../../services/tauri";
+import { recordActivity } from "../../../store/activityStore";
+import { usePreferencesStore } from "../../../store/preferencesStore";
+import { useApexTestStore } from "./apexTestStore";
 import {
   addNode,
   apexKind,
@@ -78,6 +85,7 @@ import {
 } from "../lib/deployGuards";
 import { tokenize } from "../lib/tokenize";
 import { protectionPrompt } from "../../org-manager/lib/orgProtection";
+import { offerReauthentication } from "../../org-manager/lib/orgErrors";
 import { cliProtectionPrompt, stripCliName } from "../../../lib/sfCli";
 import {
   ask,
@@ -85,6 +93,7 @@ import {
   previewList,
 } from "../../../components/ui/Confirm/confirm";
 import { toast } from "../../../components/ui/Toast/toast";
+import { errorMessage } from "../../../lib/errors";
 import type {
   CursorPosition,
   EditorInfo,
@@ -234,6 +243,11 @@ interface WorkspaceState {
     isFolder: boolean,
   ) => Promise<boolean>;
   /**
+   * Creates Salesforce source through the CLI's generators — a class with its
+   * `-meta.xml`, an LWC with its whole bundle — and opens what was made.
+   */
+  generateSource: (request: GenerateRequest) => Promise<boolean>;
+  /**
    * `paths` with the files that belong to them, which deleting removes and
    * moving carries along — for a confirmation to list.
    */
@@ -314,11 +328,14 @@ interface WorkspaceState {
   /** Opens an already-registered project. */
   switchWorkspace: (id: string) => Promise<void>;
   /** Forgets a project. Never deletes anything on disk. */
-  removeWorkspace: (id: string) => Promise<void>;
+  /** `deleteFiles` only applies to folders ForgeSF created for an org. */
+  removeWorkspace: (id: string, deleteFiles?: boolean) => Promise<void>;
   renameWorkspace: (id: string, name: string) => Promise<void>;
 
   /** Deploys specific files/folders rather than the whole package directory. */
   deployPathsAction: (paths: string[]) => Promise<void>;
+  /** Deploys everything a `package.xml` in the workspace names. */
+  deployManifestAction: (manifestPath: string) => Promise<void>;
 
   /** Files changed since the workspace last matched its org. */
   changes: WorkspaceChanges | null;
@@ -337,6 +354,17 @@ interface WorkspaceState {
   diffLoading: boolean;
   diffError: string | null;
   openDiff: (path: string) => Promise<void>;
+  /**
+   * Compares two orgs through a manifest, into the same overlay. `sourceLabel`
+   * and `targetLabel` are what the two sides are called on screen.
+   */
+  compareOrgs: (options: {
+    sourceUsername: string;
+    targetUsername: string;
+    manifestPath: string;
+  }) => Promise<void>;
+  /** Who the two sides of the open comparison are, when it is one. */
+  diffSides: { source: string; target: string } | null;
   closeDiff: () => void;
 
   /** Whether the retrieve-metadata overlay is open. */
@@ -362,10 +390,6 @@ function nextLogId(): number {
  * into the new org's folder.
  */
 let workspaceEpoch = 0;
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function mapNode(node: WorkspaceNode): WorkspaceFile {
   return {
@@ -468,6 +492,7 @@ function emptyWorkspaceState() {
     fullyLoaded: false,
     error: null as string | null,
     diffSession: null as DiffSession | null,
+    diffSides: null as { source: string; target: string } | null,
     diffError: null as string | null,
     diffLoading: false,
     changes: null as WorkspaceChanges | null,
@@ -683,6 +708,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
   function startWatching() {
     if (!isTauriRuntime) return;
     const id = get().openWorkspaceId;
+    // Nothing open: stop rather than watch whatever the backend resolves as
+    // the active folder. `unwatch_workspace` had no caller at all, so a
+    // watcher outlived the workspace it was following.
+    if (!id) {
+      stopWatching();
+      return;
+    }
     void watchWorkspace(id).catch((error: unknown) =>
       get().appendLog(
         `Changes made outside ForgeSF won't show until you refresh — ${errorMessage(error)}`,
@@ -690,6 +722,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         "system",
       ),
     );
+  }
+
+  /** Stops following the filesystem. Best-effort: nothing depends on it. */
+  function stopWatching() {
+    if (!isTauriRuntime) return;
+    void unwatchWorkspace().catch(() => {});
   }
 
   /**
@@ -962,7 +1000,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         options: {
           scope: input.scope,
           checkOnly: input.checkOnly,
-          testLevel: null,
+          // The Settings default, as the Deployments page uses. This was
+          // hard-coded to null, so a deploy from the Workspace silently ran
+          // at the org default while the same deploy from the Deployments
+          // page honoured the preference — the two disagreed.
+          testLevel: usePreferencesStore.getState().defaultTestLevel || null,
           tests: [],
           ignoreWarnings: false,
           label: input.label,
@@ -1005,6 +1047,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         appendLog(report.errorMessage, "error", "deploy");
       }
 
+      recordActivity({
+        kind: ok ? "success" : "error",
+        source: "deploy",
+        title: ok
+          ? `${noun} of ${input.label} succeeded`
+          : `${noun} of ${input.label} finished as ${report.status}`,
+        detail: report.errorMessage ?? undefined,
+        org: input.alias,
+      });
+
       appendLog(
         ok
           ? `✅ ${noun} of ${input.label} succeeded.`
@@ -1028,6 +1080,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         `❌ ${noun} of ${input.label} did not start.`,
         "error",
         "deploy",
+      );
+      offerReauthentication(
+        error,
+        useOrganizationStore
+          .getState()
+          .organizations.find((org) => org.username === input.username),
       );
     } finally {
       set({ deploying: false });
@@ -1082,6 +1140,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     activeWorkspaceId: null,
 
     diffSession: null,
+    diffSides: null,
     diffLoading: false,
     diffError: null,
 
@@ -1524,6 +1583,28 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
     },
 
+    generateSource: async (request) => {
+      const started = scope();
+      try {
+        const made = await generateSourceFiles(request, started.id);
+        if (!isCurrent(started)) return true;
+
+        // A generated bundle brings folders the tree has never read, so the
+        // whole tree is reloaded rather than patched node by node.
+        await get().refreshFiles();
+        get().appendLog(
+          `Created ${made.paths.join(", ")}`,
+          "success",
+          "terminal",
+        );
+        if (made.open) await get().selectFile(made.open);
+        return true;
+      } catch (error) {
+        reportFailure(`Could not create ${request.name}`, error);
+        return false;
+      }
+    },
+
     withCompanions: async (paths) => {
       try {
         return await includeCompanions(
@@ -1848,15 +1929,36 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     addWorkspace: async () => {
       try {
-        const folder = await selectWorkspaceFolder();
+        const folder = await pickWorkspaceFolder();
         if (!folder) return;
+
+        // A project file used to be written into any folder picked, unasked.
+        const createProject = !folder.isSalesforceProject;
+        if (
+          createProject &&
+          !(await confirm({
+            title: `Make ${folder.name} a Salesforce project?`,
+            message:
+              "It has no sfdx-project.json, which deploy and retrieve need. " +
+              "ForgeSF will add one, with force-app as the package directory. " +
+              "Nothing else in the folder changes.",
+            details: [folder.path],
+            confirmLabel: "Add sfdx-project.json",
+          }))
+        ) {
+          return;
+        }
         if (!(await confirmDiscardUnsaved(get().dirty))) return;
 
         // Binds the chosen folder to the current org, so "Open folder…"
         // repoints that org at your own repo instead of the auto-created one.
-        const orgId =
-          useOrganizationStore.getState().selectedOrganization?.id ?? null;
-        const entry = await registerWorkspace(folder, orgId);
+        const org = useOrganizationStore.getState().selectedOrganization;
+        const entry = await registerWorkspace(
+          folder.path,
+          org?.id ?? null,
+          createProject,
+          org?.alias ?? org?.username ?? null,
+        );
         await get().loadWorkspaces();
         await get().openActiveWorkspace(entry.name);
       } catch (error) {
@@ -1891,12 +1993,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
     },
 
-    removeWorkspace: async (id) => {
+    removeWorkspace: async (id, deleteFiles = false) => {
       const wasOpen = get().openWorkspaceId === id;
       if (wasOpen && !(await confirmDiscardUnsaved(get().dirty))) return;
 
       try {
-        const registry = await forgetWorkspace(id);
+        const registry = await forgetWorkspace(id, deleteFiles);
         set({
           workspaces: registry.workspaces,
           activeWorkspaceId: registry.activeId,
@@ -1984,6 +2086,38 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         scope: { kind: "paths", paths },
         checkOnly: false,
         label,
+      });
+    },
+
+    deployManifestAction: async (manifestPath) => {
+      if (get().deploying) return;
+
+      const { selectedOrganization: org, organizations } =
+        useOrganizationStore.getState();
+      if (!org) {
+        get().appendLog(
+          "Connect an org before deploying.",
+          "warning",
+          "deploy",
+        );
+        return;
+      }
+
+      const mismatch = workspaceOrgMismatchPrompt(
+        openWorkspace(),
+        org,
+        organizations,
+      );
+      if (mismatch && !(await confirm(mismatch))) return;
+
+      if (!(await saveBeforeDeploy())) return;
+
+      await runDeployJob({
+        username: org.username,
+        alias: org.alias,
+        scope: { kind: "manifest", path: manifestPath },
+        checkOnly: false,
+        label: getBaseName(manifestPath),
       });
     },
 
@@ -2101,6 +2235,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         void get().loadChanges();
       } catch (error) {
         get().appendLog(errorMessage(error), "error", "terminal");
+        offerReauthentication(error, org);
       }
     },
 
@@ -2125,11 +2260,47 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       } catch (error) {
         if (!isCurrent(started)) return;
         set({ diffError: errorMessage(error), diffLoading: false });
+        offerReauthentication(error, org);
+      }
+    },
+
+    compareOrgs: async ({ sourceUsername, targetUsername, manifestPath }) => {
+      const started = scope();
+      const orgs = useOrganizationStore.getState().organizations;
+      const label = (username: string) =>
+        orgs.find((org) => org.username === username)?.alias ?? username;
+
+      set({
+        diffLoading: true,
+        diffError: null,
+        diffSession: null,
+        diffSides: {
+          source: label(sourceUsername),
+          target: label(targetUsername),
+        },
+      });
+      try {
+        const session = await compareOrgs(
+          sourceUsername,
+          targetUsername,
+          manifestPath,
+          started.id,
+        );
+        if (!isCurrent(started)) return;
+        set({ diffSession: session, diffLoading: false });
+      } catch (error) {
+        if (!isCurrent(started)) return;
+        set({ diffError: errorMessage(error), diffLoading: false });
       }
     },
 
     closeDiff: () => {
-      set({ diffSession: null, diffError: null, diffLoading: false });
+      set({
+        diffSession: null,
+        diffError: null,
+        diffLoading: false,
+        diffSides: null,
+      });
       // Scratch directories are disposable; failing to clear them must not
       // block closing the overlay.
       void clearDiffSessions().catch(() => {});
@@ -2558,6 +2729,11 @@ useOrganizationStore.subscribe((state, previous) => {
   const nextOrg = state.selectedOrganization;
   const previousOrg = previous.selectedOrganization;
   if (nextOrg?.id === previousOrg?.id) return;
+
+  // Coverage marks belong to the org the run happened in; drawing one org's
+  // over another org's source would be worse than showing none.
+  useApexTestStore.getState().syncToOrg(nextOrg?.id ?? null);
+
   if (changingSelection) return;
 
   // No org selected: leave whatever workspace is open rather than closing it.

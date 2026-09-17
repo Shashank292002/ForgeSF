@@ -47,7 +47,10 @@ export default function MainLayout() {
         <main
           className={`${styles.main} ${isWorkspace ? styles.workspaceMain : ""}`}
         >
-          {cliWarning && !cliWarningDismissed && !isWorkspace && (
+          {/* Shown on the workspace route too: it is the page where an
+              unusable CLI hurts most — every deploy, retrieve and test run
+              there goes through it. */}
+          {cliWarning && !cliWarningDismissed && (
             <div className={styles.cliWarning} role="alert">
               <AlertTriangle size={16} />
               <span>{cliWarning}</span>

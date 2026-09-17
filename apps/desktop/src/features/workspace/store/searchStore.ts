@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import { errorMessage } from "@/lib/errors";
 import type { SearchRequest, SearchResults } from "@/types/generated";
 import {
   cancelWorkspaceSearch,
@@ -51,10 +52,6 @@ export const SEARCH_DEBOUNCE_MS = 300;
 let timer: ReturnType<typeof setTimeout> | undefined;
 /** Numbers each search, so a slow one cannot overwrite a newer one's results. */
 let latest = 0;
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export const useSearchStore = create<SearchState>((set, get) => {
   /** Runs the search once typing pauses, or clears the results for no query. */

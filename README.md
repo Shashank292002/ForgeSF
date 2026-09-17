@@ -19,7 +19,7 @@ Build • Explore • Analyze • Deploy
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-success" />
   <img src="https://img.shields.io/badge/UI-Tauri%20%2B%20React-informational" />
   <img src="https://img.shields.io/badge/Open%20Source-Yes-green" />
-  <img src="https://img.shields.io/badge/License-Apache%202.0-orange" />
+  <img src="https://img.shields.io/badge/License-MIT-orange" />
 </p>
 
 ---
@@ -84,11 +84,13 @@ ForgeSF will provide:
 The following modules are functional in the desktop app today:
 
 ### 🏢 Org Manager
+
 - Connect, list, and switch between multiple Salesforce orgs (OAuth via Salesforce CLI)
 - Org aliases, default-org selection, and connection status
 - Open the org in a browser, log out, and inspect org details
 
 ### 🧰 Developer Tools (single hub)
+
 - **SOQL** and **SOSL** — run queries against the connected org with table & raw JSON views
 - **Anonymous Apex** — execute code directly against your org
 - **CLI** — run any `sf` command from the app
@@ -96,31 +98,36 @@ The following modules are functional in the desktop app today:
 - Keyboard shortcut `Ctrl/⌘ + Enter` to execute
 
 ### 📦 Metadata Explorer
+
 Browse and retrieve metadata from any connected org:
+
 - Search and select metadata types, then browse the components of each type
 - Select multiple components and retrieve them into your local workspace
 - Refresh types/components, clear selections, and jump to the Workspace
 
-> **Note:** *Metadata* and *Anonymous Apex* no longer appear as top-level navigation items. To keep the sidebar clean they are surfaced through **Developer Tools** and the **Dashboard** quick actions — the underlying `/metadata` and `/apex` routes remain available.
+> **Note:** _Metadata_ and _Anonymous Apex_ no longer appear as top-level navigation items. To keep the sidebar clean they are surfaced through **Developer Tools** and the **Dashboard** quick actions. `/metadata` still has its own page; `/apex` redirects to the Developer Tools Apex tab, which the standalone page duplicated with weaker error handling and no production guard.
 
 ### 💻 Workspace
+
 - VS Code-style layout with an activity bar, file explorer, Monaco editor, and terminal
 - **Apex syntax highlighting** and language-aware editing for `.cls`, `.trigger`, `.xml`, and more
 - Create, rename, and delete files/folders inside the local `force-app` project
 - **Deploy** your source to the connected org (with check-only option)
 
 ### 🚀 Deployments
+
 - Validate and deploy workspace changes to a connected org
 - Deployment status and feedback from the Salesforce CLI
 
 ### 🔌 Plugins & ⚙️ Settings
+
 - Foundational **Plugins** and **Settings** surfaces ready for the extensibility roadmap
 
 ---
 
 ## 🧭 Planned & Roadmap Features
 
-The next sections describe the product roadmap. Items already shipped are listed above under *Implemented in the current build*.
+The next sections describe the product roadmap. Items already shipped are listed above under _Implemented in the current build_.
 
 ### 📊 Debug Center
 
@@ -201,23 +208,22 @@ Future plugins may include:
 
 # 🛠 Technology Stack
 
-| Layer | Technology |
-|--------|------------|
-| Desktop | Tauri (v2) |
-| Frontend | React 19 |
-| Language | TypeScript |
-| Styling | CSS Modules + global styles |
-| UI Components | Lucide icons + custom components (Button, Badge, Card, Input) |
-| State Management | Zustand |
-| Data Fetching | TanStack Query |
-| Editor | Monaco Editor |
-| Resizable Layouts | react-resizable-panels |
-| Routing | React Router |
-| Backend | Rust (Tauri commands) |
-| Salesforce Integration | Salesforce CLI (`sf`) |
-| Testing | Vitest (planned) |
-| End-to-End Testing | Playwright (planned) |
-| CI/CD | GitHub Actions (planned) |
+| Layer                  | Technology                                                                                                  |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Desktop                | Tauri (v2)                                                                                                  |
+| Frontend               | React 19                                                                                                    |
+| Language               | TypeScript                                                                                                  |
+| Styling                | CSS Modules + global styles                                                                                 |
+| UI Components          | Lucide icons + custom components (Button, Badge, Card, Input)                                               |
+| State Management       | Zustand                                                                                                     |
+| Data Fetching          | TanStack Query                                                                                              |
+| Editor                 | Monaco Editor                                                                                               |
+| Resizable Layouts      | react-resizable-panels                                                                                      |
+| Routing                | React Router                                                                                                |
+| Backend                | Rust (Tauri commands)                                                                                       |
+| Salesforce Integration | Salesforce CLI (`sf`)                                                                                       |
+| Testing                | Vitest (frontend) + `cargo test` (Rust)                                                                     |
+| CI/CD                  | GitHub Actions — type-check, lint, tests, format, clippy, release build and smoke test on Windows and Linux |
 
 ---
 
@@ -233,10 +239,7 @@ Future plugins may include:
 ## Install
 
 ```bash
-# from the repository root
-pnpm install
-
-# the desktop app lives in apps/desktop
+# the app lives in apps/desktop
 cd apps/desktop
 pnpm install
 ```
@@ -254,9 +257,15 @@ pnpm dev
 ## Build & lint
 
 ```bash
-pnpm build   # type-check + production bundle
-pnpm lint    # ESLint
+pnpm build         # type-check + production bundle
+pnpm lint          # ESLint
+pnpm test          # Vitest
+pnpm format:check  # Prettier
+pnpm tauri build   # installers for the current platform
 ```
+
+In `apps/desktop/src-tauri`: `cargo fmt --check`, `cargo clippy -- -D warnings`
+and `cargo test --lib`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -284,7 +293,7 @@ ForgeSF
 │       ├── src-tauri/          # Rust backend (Tauri commands → sf CLI)
 │       └── workspace/          # local force-app source (Salesforce project)
 │
-├── docs/                       # (planned) project documentation
+├── docs/sprints/               # sprint notes
 ├── plugins/                    # (planned) plugin SDK & marketplace
 ├── packages/                   # (planned) shared packages
 ├── website/                    # (planned) project website
@@ -301,48 +310,49 @@ ForgeSF
 
 # 📖 Documentation
 
-Complete project documentation lives inside the `docs/` directory.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — setting up, the checks CI runs, how the
+  code is organised, and what a good change looks like
+- [SECURITY.md](SECURITY.md) — reporting a vulnerability, and how ForgeSF
+  handles your org's credentials and files
+- [ROADMAP.md](ROADMAP.md) — what is built and what comes next
+- [CHANGELOG.md](CHANGELOG.md) — what changed
+- [docs/plugin-sdk.md](docs/plugin-sdk.md) — the plugin system's design: what a
+  plugin may and may not do, and why
+- `docs/sprints/` — sprint notes
 
-Documentation includes:
-
-- Product Requirements Document
-- Software Requirements Specification
-- System Architecture
-- Frontend Architecture
-- Backend Architecture
-- Database Design
-- UI Guidelines
-- Plugin SDK
-- Development Standards
-- Contribution Guide
-- Security Guidelines
-- Roadmap
+The architecture, PRD and plugin SDK documents this section once promised have
+not been written; ROADMAP.md is the honest version of what exists.
 
 ---
 
 # 🗺 Roadmap
 
 ## ✅ Phase 1 — Foundation
+
 - Repository Setup
 - Documentation
 - Architecture
 - Branding
 
 ## ✅ Phase 2 — Desktop Shell
+
 - Desktop Foundation (Tauri + React)
 - Authentication / Org connection via Salesforce CLI
 - Dashboard
 
 ## ✅ Phase 3 — Core Developer Tools
+
 - Org Manager
 - Developer Tools (SOQL / SOSL / Anonymous Apex / CLI)
 - Metadata Explorer
 
 ## 🔄 Phase 4 — Workspace & Deploy
+
 - Workspace (Monaco editor, file explorer, terminal)
 - Deployments (validate & deploy)
 
 ## ⏭ Phase 5
+
 - Debug Center
 - Org Comparison
 
@@ -430,7 +440,7 @@ Please refer to **SECURITY.md**.
 
 # 📜 License
 
-This project is licensed under the Apache License 2.0.
+This project is licensed under the MIT License.
 
 See the LICENSE file for details.
 

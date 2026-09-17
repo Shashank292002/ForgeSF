@@ -20,6 +20,12 @@ import { registerApexLanguage, defineForgeTheme } from "../lib/apexLanguage";
 // its workers. The `import type` below is erased at compile time, so without
 // this line the editor fell back to a CDN that the app's CSP blocks.
 import "../lib/monaco";
+import { useApexTestStore } from "../store/apexTestStore";
+import {
+  editorOptions,
+  usePreferencesStore,
+} from "../../../store/preferencesStore";
+import { uncoveredLinesFor } from "../lib/apexTests";
 import type { Monaco } from "../lib/monaco";
 import { getBaseName } from "../lib/workspaceUtils";
 import WorkspaceTabs from "./WorkspaceTabs";
@@ -63,6 +69,10 @@ export default function WorkspaceEditor() {
   const openFiles = useWorkspaceStore((state) => state.openFiles);
   const setEditorInfo = useWorkspaceStore((state) => state.setEditorInfo);
 
+  // Coverage from the last test run, drawn in the gutter of the class it
+  // belongs to.
+  const uncoveredByClass = useApexTestStore((state) => state.uncoveredByClass);
+
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   // Counts editor mounts: the editor unmounts while a file loads, and a
@@ -71,8 +81,12 @@ export default function WorkspaceEditor() {
   const revealedSeq = useRef(0);
   /** Files the editor has created a model for, so closed ones can be freed. */
   const modelPaths = useRef(new Set<string>());
-  const [wrap, setWrap] = useState(false);
-  const [minimap, setMinimap] = useState(false);
+  // Settings hold what the editor starts as; the toolbar toggles override it
+  // for this session, so a quick look at a wide file does not change a
+  // preference.
+  const preferences = usePreferencesStore();
+  const [wrap, setWrap] = useState(preferences.editorWordWrap);
+  const [minimap, setMinimap] = useState(preferences.editorMinimap);
 
   const language = file ? languageForPath(file) : "plaintext";
   const canFormat = hasFormatter(language);
@@ -132,6 +146,47 @@ export default function WorkspaceEditor() {
       modelPaths.current.delete(path);
     }
   }, [openFiles, file, mounts]);
+
+  // Marks the lines the last Apex test run never reached, in the gutter and
+  // down the right-hand overview ruler. Uses a decorations collection rather
+  // than `deltaDecorations`, so the marks follow edits instead of drifting.
+  useEffect(() => {
+    const instance = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!instance || !monaco) return;
+
+    const collection = instance.createDecorationsCollection([]);
+    const apply = () => {
+      const model = instance.getModel();
+      const lines = file ? uncoveredLinesFor(file, uncoveredByClass) : [];
+      if (!model || lines.length === 0) {
+        collection.clear();
+        return;
+      }
+      collection.set(
+        lines
+          .filter((line) => line <= model.getLineCount())
+          .map((line) => ({
+            range: new monaco.Range(line, 1, line, 1),
+            options: {
+              isWholeLine: true,
+              className: "fw-uncovered-line",
+              linesDecorationsClassName: "fw-uncovered-gutter",
+              overviewRuler: {
+                color: "rgba(241, 76, 76, 0.55)",
+                position: monaco.editor.OverviewRulerLane.Right,
+              },
+              hoverMessage: {
+                value: "Not covered by the last Apex test run.",
+              },
+            },
+          })),
+      );
+    };
+
+    apply();
+    return () => collection.clear();
+  }, [file, uncoveredByClass, mounts, loadingContent]);
 
   // Puts the cursor on a search match or a Quick Open line. The file may
   // still be loading when the request arrives, so this waits until the editor
@@ -334,14 +389,17 @@ export default function WorkspaceEditor() {
           onChange={(value) => updateFileContent(file, value ?? "")}
           onMount={handleMount}
           options={{
+            // From the preferences, through the helper that is tested for it
+            // — the two used to be written out separately and could drift.
+            // The toolbar's wrap and minimap toggles override for this
+            // session only, so they come after.
+            ...editorOptions(preferences),
             minimap: { enabled: minimap },
+            wordWrap: wrap ? "on" : "off",
             scrollBeyondLastLine: false,
-            fontSize: 13,
             fontFamily: "var(--fw-font-mono, 'JetBrains Mono', monospace)",
             fontLigatures: true,
-            wordWrap: wrap ? "on" : "off",
             automaticLayout: true,
-            tabSize: 4,
             insertSpaces: true,
             renderWhitespace: "selection",
             bracketPairColorization: { enabled: true },

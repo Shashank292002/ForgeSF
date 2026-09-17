@@ -17,7 +17,12 @@ use serde::Serialize;
 use tauri::Emitter;
 use ts_rs::TS;
 
-use crate::commands::{blocking, kill_process_tree, sf_command, workspace_root, RunGuard};
+use crate::error::AppResult;
+use crate::sf::discover::sf_command;
+use crate::sf::policy;
+use crate::sf::runner::{kill_process_tree, RunGuard};
+use crate::util::blocking;
+use crate::workspace::registry::workspace_root;
 
 /// Emitted for each batch of a running command's output, and once at the end.
 pub(crate) const TERMINAL_EVENT: &str = "terminal_output";
@@ -58,7 +63,7 @@ pub struct TerminalEvent {
 /// A terminal command may run this long: a deploy with a long `--wait` fits.
 const TERMINAL_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 /// Output shown per command, at most. More would only flood the panel.
-const MAX_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
+pub(crate) const MAX_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
 /// Output is sent in batches this often, not line by line.
 const BATCH_INTERVAL: Duration = Duration::from_millis(60);
 const POLL: Duration = Duration::from_millis(25);
@@ -158,7 +163,7 @@ pub(crate) fn run_streaming(
     timeout: Duration,
     max_bytes: usize,
     mut emit: impl FnMut(Vec<TerminalChunk>, Option<TerminalExit>),
-) -> Result<(), String> {
+) -> AppResult<()> {
     if cancelled.load(Ordering::SeqCst) {
         emit(
             Vec::new(),
@@ -246,8 +251,11 @@ pub async fn run_terminal_command(
     args: Vec<String>,
     run_id: String,
     workspace_id: Option<String>,
-) -> Result<(), String> {
+) -> AppResult<()> {
     blocking(move || {
+        if let Some(reason) = policy::refusal(&args) {
+            return Err(reason.into());
+        }
         let run = RunGuard::begin(Some(run_id.clone()));
         let mut command = sf_command()?;
         command.args(&args);
@@ -372,7 +380,20 @@ mod tests {
 
     #[test]
     fn output_past_the_limit_is_left_out() {
-        let events = run(chatty(), &AtomicBool::new(false), 5);
+        // Only stdout: the budget is shared between the streams, and with a
+        // chatty stderr on its own thread which line lands first is a race.
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "echo one& echo three"]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "echo one; echo three"]);
+            command
+        };
+        command.stderr(std::process::Stdio::null());
+
+        let events = run(command, &AtomicBool::new(false), 5);
         assert_eq!(text_of(&events, "stdout"), "one");
         assert!(events.last().unwrap().1.as_ref().unwrap().truncated);
     }

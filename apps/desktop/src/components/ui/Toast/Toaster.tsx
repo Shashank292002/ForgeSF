@@ -44,6 +44,18 @@ function ToastItem({ toast }: { toast: Toast }) {
       <div className={styles.text}>
         {toast.title && <p className={styles.title}>{toast.title}</p>}
         <p className={styles.message}>{toast.message}</p>
+        {toast.action && (
+          <button
+            type="button"
+            className={styles.action}
+            onClick={() => {
+              toast.action?.onClick();
+              dismissToast(toast.id);
+            }}
+          >
+            {toast.action.label}
+          </button>
+        )}
       </div>
       <button
         type="button"

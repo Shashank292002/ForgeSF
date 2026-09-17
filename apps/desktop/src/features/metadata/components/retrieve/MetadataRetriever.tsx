@@ -13,8 +13,6 @@ import { useMetadataStore } from "../../../../store/metadataStore";
 import useCurrentOrg from "../../../../hooks/useCurrentOrg";
 import { useOrganizationStore } from "../../../../store/orgStore";
 import {
-  listMetadataComponents,
-  listMetadataTypes,
   retrieveMetadataProgress,
   onRetrieveProgress,
   cancelRetrieve,
@@ -26,10 +24,18 @@ import type {
   RetrieveTypeResult,
 } from "../../types";
 import type { MetadataCategoryKey } from "../../lib/categories";
-import { resolveRetrieveSpecs } from "../../lib/retrieveSpecs";
+import { resolveMetadataSpecs } from "../../lib/metadataSpecs";
 import { needsExplicitMembers, withChildTypes } from "../../lib/typeCatalog";
 import { useWorkspaceStore } from "../../../workspace/store/workspaceStore";
+import { errorMessage } from "../../../../lib/errors";
+import { recordActivity } from "../../../../store/activityStore";
+import { offerReauthentication } from "../../../org-manager/lib/orgErrors";
 import { useDialog } from "../../../../hooks/useDialog";
+import {
+  useComponentLister,
+  useComponentsOfTypes,
+  useMetadataTypes,
+} from "../../hooks/useOrgMetadata";
 import { mixingWarningFor } from "../../../workspace/lib/workspaceGuards";
 import { setWorkspaceRetrievedOrg } from "../../../workspace/services/workspaceService";
 import {
@@ -128,8 +134,7 @@ export default function MetadataRetriever({
   // Needed to name the previous org in the mixing warning.
   const organizations = useOrganizationStore((s) => s.organizations);
 
-  const metadata = useMetadataStore((s) => s.metadata);
-  const setMetadata = useMetadataStore((s) => s.setMetadata);
+  const setOrg = useMetadataStore((s) => s.setOrg);
   const selectedTypes = useMetadataStore((s) => s.selectedTypes);
   const setSelectedTypes = useMetadataStore((s) => s.setSelectedTypes);
   const toggleType = useMetadataStore((s) => s.toggleType);
@@ -143,17 +148,22 @@ export default function MetadataRetriever({
   const reloadCleanBuffers = useWorkspaceStore((s) => s.reloadCleanBuffers);
   const setActiveView = useWorkspaceStore((s) => s.setActiveView);
 
+  // The org's type list, from the shared cache: reopening the wizard, or
+  // visiting Deployments after it, reuses the listing instead of re-running
+  // `sf org list metadata-types`.
+  const username = organization?.username;
+  const types = useMetadataTypes(username);
+
   // Child types (CustomField, ValidationRule…) are only reachable through
   // their parent's `childXmlNames`; offer them as types of their own.
-  const catalog = useMemo(() => withChildTypes(metadata), [metadata]);
+  const catalog = useMemo(() => withChildTypes(types.data ?? []), [types.data]);
 
   const [step, setStep] = useState<Step>("select");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<Category>("all");
-  const [loadingTypes, setLoadingTypes] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  // Kept separate from `loadError`: a failed retrieve used to render as a
-  // "could not load metadata types" error when stepping back to step 1.
+  // Kept separate from the type list's own error: a failed retrieve used to
+  // render as a "could not load metadata types" error when stepping back to
+  // step 1.
   const [retrieveError, setRetrieveError] = useState<string | null>(null);
   const [entries, setEntries] = useState<RetrieveProgressEntry[]>([]);
   // Set the moment Cancel is pressed; the run still finishes its batch.
@@ -163,20 +173,7 @@ export default function MetadataRetriever({
   const [result, setResult] = useState<RetrieveResult | null>(null);
   const unlistenRef = useRef<(() => void) | null>(null);
 
-  // Component picker state — cached per type so navigating between steps
-  // doesn't refetch `sf org list metadata` for types already loaded.
-  //
-  // The cache carries the org it was listed from and is *derived* away when the
-  // org changes, rather than being cleared from an effect. Components belong to
-  // one org; keeping them across a switch showed — and would have retrieved —
-  // the previous org's members.
-  const [cache, setCache] = useState<{
-    org: string | null;
-    byKind: Record<string, string[]>;
-  }>({ org: null, byKind: {} });
   const [activeTypeRaw, setActiveType] = useState<string | null>(null);
-  const [loadingType, setLoadingType] = useState<string | null>(null);
-  const [compsError, setCompsError] = useState<string | null>(null);
 
   useEffect(() => () => unlistenRef.current?.(), []);
 
@@ -185,96 +182,31 @@ export default function MetadataRetriever({
     if (mode === "overlay") onClose?.();
   });
 
-  // Loads the org's metadata types. The `cancelled` flag drops results from a
-  // superseded org: switching orgs mid-fetch used to let the slower response
-  // land and overwrite the newer org's type list.
-  const username = organization?.username;
-
+  // Selections belong to one org: switching clears them.
   useEffect(() => {
-    if (!username) return;
+    if (username) setOrg(username);
+  }, [username, setOrg]);
 
-    let cancelled = false;
-
-    const loadTypes = async () => {
-      setLoadingTypes(true);
-      setLoadError(null);
-      try {
-        const types = await listMetadataTypes(username);
-        if (!cancelled) setMetadata(username, types);
-      } catch (error) {
-        if (!cancelled) {
-          setLoadError(
-            error instanceof Error
-              ? error.message
-              : "Could not load metadata types.",
-          );
-        }
-      } finally {
-        if (!cancelled) setLoadingTypes(false);
-      }
-    };
-
-    void loadTypes();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [username, setMetadata]);
-
-  // Both derived: an org switch invalidates the cache and any active type
-  // without an effect having to reset them.
-  const componentsCache = useMemo(
-    () => (cache.org === username ? cache.byKind : {}),
-    [cache, username],
-  );
   const activeType =
     activeTypeRaw && selectedTypes.includes(activeTypeRaw)
       ? activeTypeRaw
       : null;
 
+  // The chosen type's components, and the lists already held for the others.
+  const components = useComponentsOfTypes(username, selectedTypes, activeType);
+  const componentsCache = components.byKind;
+  const listComponents = useComponentLister();
+
+  // Listing types or components can fail because the session expired, and the
+  // fix is the same wherever it happened.
+  const listingError = types.error ?? components.error;
+  useEffect(() => {
+    if (listingError) offerReauthentication(listingError, organization);
+  }, [listingError, organization]);
+
   // Specs used for the current/last run, keyed by metadata type, so failed
   // types can be retried with exactly the same component selection.
   const specsByKindRef = useRef<Record<string, string[]>>({});
-
-  /** Stores a listed member set, scoped to the org it came from. */
-  const cacheMembers = useCallback(
-    (org: string, kind: string, members: string[]) =>
-      setCache((prev) =>
-        prev.org === org
-          ? { org, byKind: { ...prev.byKind, [kind]: members } }
-          : { org, byKind: { [kind]: members } },
-      ),
-    [],
-  );
-
-  const ensureComponents = useCallback(
-    async (kind: string) => {
-      if (!organization) return;
-      // Only skip when this exact type is already cached or already in
-      // flight. The old `|| loadingType` guard dropped the request whenever
-      // *any* type was loading, so clicking a second type did nothing.
-      if (componentsCache[kind] || loadingType === kind) return;
-      const org = organization.username;
-      setLoadingType(kind);
-      setCompsError(null);
-
-      try {
-        cacheMembers(org, kind, await listMetadataComponents(kind, org));
-      } catch (error) {
-        // Some types can't be listed. Cache an empty list and surface the
-        // reason in the picker.
-        cacheMembers(org, kind, []);
-        setCompsError(
-          error instanceof Error
-            ? error.message
-            : "Could not list components for this type.",
-        );
-      } finally {
-        setLoadingType(null);
-      }
-    },
-    [organization, componentsCache, loadingType, cacheMembers],
-  );
 
   const runRetrieve = useCallback(
     async (
@@ -401,10 +333,31 @@ export default function MetadataRetriever({
               // Best-effort bookkeeping — never fail a completed retrieve.
             });
         }
+        // The main retrieve path recorded nothing, so the Dashboard's
+        // activity card only ever showed retrieves run from a manifest.
+        recordActivity({
+          kind: res.failed > 0 ? "error" : "success",
+          source: "retrieve",
+          title: res.cancelled
+            ? `Retrieve from ${organization.alias} cancelled`
+            : `Retrieved ${res.succeeded} of ${res.total} metadata type${
+                res.total === 1 ? "" : "s"
+              }`,
+          detail: res.summary || undefined,
+          org: organization.alias,
+        });
         setStep("results");
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         setRetrieveError(message);
+        recordActivity({
+          kind: "error",
+          source: "retrieve",
+          title: `Retrieve from ${organization.alias} failed`,
+          detail: message,
+          org: organization.alias,
+        });
+        offerReauthentication(error, organization);
         setResult({
           success: false,
           summary: message,
@@ -505,26 +458,18 @@ export default function MetadataRetriever({
       setPreparing(true);
       try {
         for (const kind of needLists) {
-          const cached = componentsCache[kind];
-          if (cached) {
-            fullMembers[kind] = cached;
-            continue;
-          }
           try {
-            const members = await listMetadataComponents(
-              kind,
+            // Cached from the picker when the type was opened there.
+            fullMembers[kind] = await listComponents(
               organization.username,
+              kind,
             );
-            cacheMembers(organization.username, kind, members);
-            fullMembers[kind] = members;
           } catch (error) {
             preflight.push({
               kind,
               status: "failed",
               retrieved: 0,
-              message: `Could not list its components: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
+              message: `Could not list its components: ${errorMessage(error)}`,
               warnings: [],
             });
           }
@@ -535,7 +480,7 @@ export default function MetadataRetriever({
     }
 
     const failedToList = new Set(preflight.map((item) => item.kind));
-    const { specs, empty } = resolveRetrieveSpecs(
+    const { specs, empty } = resolveMetadataSpecs(
       selectedTypes.filter((kind) => !failedToList.has(kind)),
       selectedMembers,
       fullMembers,
@@ -558,8 +503,7 @@ export default function MetadataRetriever({
     organization,
     organizations,
     catalog,
-    componentsCache,
-    cacheMembers,
+    listComponents,
   ]);
 
   /**
@@ -687,8 +631,12 @@ export default function MetadataRetriever({
           <RetrieveSelectStep
             metadata={catalog}
             selectedTypes={selectedTypes}
-            loading={loadingTypes}
-            error={loadError}
+            loading={types.isFetching}
+            error={
+              types.error
+                ? errorMessage(types.error, "Could not load metadata types.")
+                : null
+            }
             category={category}
             search={search}
             onSearch={setSearch}
@@ -705,8 +653,15 @@ export default function MetadataRetriever({
             types={selectedTypes}
             activeType={activeType}
             componentsCache={componentsCache}
-            loadingType={loadingType}
-            error={compsError}
+            loading={components.loading}
+            error={
+              components.error
+                ? errorMessage(
+                    components.error,
+                    "Could not list components for this type.",
+                  )
+                : null
+            }
             selectedMembers={selectedMembers}
             onActiveType={setActiveType}
             onToggleMember={toggleMember}
@@ -714,7 +669,6 @@ export default function MetadataRetriever({
               setMembers(kind, componentsCache[kind] ?? [])
             }
             onClear={clearMemberSelection}
-            onEnsureComponents={(kind) => void ensureComponents(kind)}
             onBack={() => setStep("select")}
           />
         )}
@@ -778,7 +732,7 @@ export default function MetadataRetriever({
                 <button
                   type="button"
                   className="mr-btn mr-btn--primary"
-                  disabled={selectedTypes.length === 0 || loadingTypes}
+                  disabled={selectedTypes.length === 0 || types.isFetching}
                   onClick={() => {
                     if (
                       activeType === null ||

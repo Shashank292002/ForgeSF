@@ -5,8 +5,8 @@ import { AlertTriangle, Rocket, X } from "lucide-react";
 import type { DeployRecord, DeployScope } from "@/types/generated";
 import { useNow } from "../../hooks/useNow";
 import { useOrganizationStore } from "../../store/orgStore";
+import { usePreferencesStore } from "../../store/preferencesStore";
 import { useWorkspaceStore } from "../workspace/store/workspaceStore";
-import { listMetadataTypes } from "../../services/tauri";
 import { Badge } from "../../components/ui";
 import OrgConnector from "./components/OrgConnector";
 import MetadataSelector from "./components/MetadataSelector";
@@ -28,13 +28,23 @@ import {
   protectionPrompt,
 } from "../org-manager/lib/orgProtection";
 import { confirm } from "../../components/ui/Confirm/confirm";
-import type { MetadataType } from "../metadata/types";
+import { errorMessage } from "../../lib/errors";
+import { offerReauthentication } from "../org-manager/lib/orgErrors";
+import {
+  useComponentLister,
+  useComponentsOfTypes,
+  useMetadataTypes,
+} from "../metadata/hooks/useOrgMetadata";
+import {
+  needsExplicitMembers,
+  withChildTypes,
+} from "../metadata/lib/typeCatalog";
+import {
+  resolveMetadataSpecs,
+  selectionCount,
+} from "../metadata/lib/metadataSpecs";
 import type { Organization } from "../org-manager/types";
 import styles from "./DeploymentsPage.module.css";
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 const INITIAL_FORM: DeployFormValue = {
   scope: "workspace",
@@ -42,6 +52,14 @@ const INITIAL_FORM: DeployFormValue = {
   testsInput: "",
   ignoreWarnings: false,
 };
+
+/** The form a visit starts with, before the test-level preference applies. */
+function initialForm(paths: string[]): DeployFormValue {
+  return {
+    ...INITIAL_FORM,
+    scope: paths.length > 0 ? "paths" : INITIAL_FORM.scope,
+  };
+}
 
 /** What the explorer's "Validate…" sends along when it opens this page. */
 interface DeploymentsLocationState {
@@ -53,6 +71,17 @@ function pathsFrom(state: unknown): string[] {
   return Array.isArray(paths)
     ? paths.filter((path): path is string => typeof path === "string")
     : [];
+}
+
+/** The picks without `kind` — leaving that type whole rather than narrowed. */
+function withoutType(
+  members: Record<string, string[]>,
+  kind: string,
+): Record<string, string[]> {
+  if (!(kind in members)) return members;
+  const next = { ...members };
+  delete next[kind];
+  return next;
 }
 
 /** Refreshes Pending Changes once a deploy that committed files finishes. */
@@ -114,13 +143,26 @@ export default function DeploymentsPage() {
   const [selectedPaths, setSelectedPaths] = useState<string[]>(() =>
     pathsFrom(location.state),
   );
-  const [form, setForm] = useState<DeployFormValue>(() =>
-    selectedPaths.length > 0
-      ? { ...INITIAL_FORM, scope: "paths" }
-      : INITIAL_FORM,
+  const defaultTestLevel = usePreferencesStore((s) => s.defaultTestLevel);
+  const [stored, setStored] = useState<DeployFormValue>(() =>
+    initialForm(selectedPaths),
   );
-  const updateForm = (patch: Partial<DeployFormValue>) =>
-    setForm((current) => ({ ...current, ...patch }));
+
+  // The Settings default stands until a level is picked here. Derived rather
+  // than copied into state by an effect: preferences load asynchronously, so
+  // the stored level usually arrives *after* the first render, and syncing it
+  // across would be a setState cascade on every load.
+  const [testLevelTouched, setTestLevelTouched] = useState(false);
+  const form: DeployFormValue = testLevelTouched
+    ? stored
+    : { ...stored, testLevel: defaultTestLevel };
+
+  const setForm = (update: (current: DeployFormValue) => DeployFormValue) =>
+    setStored((current) => update(current));
+  const updateForm = (patch: Partial<DeployFormValue>) => {
+    if (patch.testLevel !== undefined) setTestLevelTouched(true);
+    setStored((current) => ({ ...current, ...patch }));
+  };
   const clearSelectedPaths = () => {
     setSelectedPaths([]);
     setForm((current) =>
@@ -130,11 +172,14 @@ export default function DeploymentsPage() {
 
   // Local to this page: the selection used to live in the store shared with
   // the retrieve wizard, so choices made in one leaked into the other.
-  const [metadataTypes, setMetadataTypes] = useState<MetadataType[]>([]);
   const [selectedMetadata, setSelectedMetadata] = useState<string[]>([]);
+  // Components picked within a type. A type with no entry deploys all of them.
+  const [selectedMembers, setSelectedMembers] = useState<
+    Record<string, string[]>
+  >({});
+  const [expandedType, setExpandedType] = useState<string | null>(null);
+  const [sourceId, setSourceId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [typesLoading, setTypesLoading] = useState(false);
-  const [typesError, setTypesError] = useState<string | null>(null);
 
   const [starting, setStarting] = useState<"validate" | "deploy" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -156,31 +201,52 @@ export default function DeploymentsPage() {
     void loadChanges();
   }, [loadChanges]);
 
-  // The type list is the target org's, and only needed for that scope.
-  const targetUsername = targetOrg?.username;
-  const wantTypes = form.scope === "metadata";
+  // The metadata scope is org → org: the components come out of the source
+  // org, so its type list is the one to show. It comes from the cache the
+  // Retrieve wizard fills, so picking this scope right after a retrieve costs
+  // no CLI call at all.
+  const sourceOrg = organizations.find((org) => org.id === sourceId) ?? null;
+  const metadataScope = form.scope === "metadata";
+  const sourceUsername = sourceOrg?.username;
+  const types = useMetadataTypes(metadataScope ? sourceUsername : undefined);
+  const typesError = types.error ? errorMessage(types.error) : null;
   useEffect(() => {
-    if (!targetUsername || !wantTypes) return;
+    if (types.error) offerReauthentication(types.error, sourceOrg);
+  }, [types.error, sourceOrg]);
 
-    let cancelled = false;
-    const loadTypes = async () => {
-      setTypesLoading(true);
-      setTypesError(null);
-      try {
-        const types = await listMetadataTypes(targetUsername);
-        if (!cancelled) setMetadataTypes(types);
-      } catch (error) {
-        if (!cancelled) setTypesError(errorMessage(error));
-      } finally {
-        if (!cancelled) setTypesLoading(false);
-      }
-    };
-    void loadTypes();
+  // Child types (CustomField, ValidationRule, ListView) only appear in a
+  // parent's `childXmlNames`, so without this the page cannot deploy a single
+  // field at all.
+  const catalog = useMemo(() => withChildTypes(types.data ?? []), [types.data]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [targetUsername, wantTypes]);
+  // Only the expanded type is listed from the org; the rest come from cache.
+  const listed = useComponentsOfTypes(
+    metadataScope ? sourceUsername : undefined,
+    expandedType
+      ? [...new Set([...selectedMetadata, expandedType])]
+      : selectedMetadata,
+    expandedType,
+  );
+  // Lists a type's components outside the render flow — the check a deploy
+  // runs before it starts, for a type that was never expanded.
+  const listComponents = useComponentLister();
+  const componentsError = listed.error ? errorMessage(listed.error) : null;
+  useEffect(() => {
+    if (listed.error) offerReauthentication(listed.error, sourceOrg);
+  }, [listed.error, sourceOrg]);
+
+  // Folder and child types have no wildcard, so one with no components in the
+  // source org would be sent as a spec the CLI rejects. Caught before submit.
+  const emptyTypes = useMemo(
+    () =>
+      selectedMetadata.filter((kind) => {
+        const type = catalog.find((item) => item.xmlName === kind);
+        if (!needsExplicitMembers(type)) return false;
+        if ((selectedMembers[kind] ?? []).length > 0) return false;
+        return listed.byKind[kind]?.length === 0;
+      }),
+    [selectedMetadata, selectedMembers, catalog, listed.byKind],
+  );
 
   const selectedRecord =
     history.find((record) => record.jobId === selectedJobId) ??
@@ -218,8 +284,10 @@ export default function DeploymentsPage() {
     [form.testsInput],
   );
 
+  // An org → org deploy reads nothing on disk, so it does not need a project
+  // open — only the file scopes do.
   const problemFor = (checkOnly: boolean): string | null => {
-    if (!workspace) return "Open a workspace first.";
+    if (!workspace && !metadataScope) return "Open a workspace first.";
     if (!targetOrg) return "Pick a target org.";
     return deployFormProblem({
       checkOnly,
@@ -229,14 +297,70 @@ export default function DeploymentsPage() {
       changedCount: changes?.baselineAt != null ? changedPaths.length : 0,
       pathsCount: selectedPaths.length,
       metadataCount: selectedMetadata.length,
+      sourceUsername: sourceUsername ?? null,
+      targetUsername: targetOrg.username,
+      emptyTypes,
     });
   };
   const validateProblem = problemFor(true);
   const deployProblem = problemFor(false);
 
   const submit = async (checkOnly: boolean) => {
-    if (!workspace || !targetOrg || problemFor(checkOnly)) return;
+    if (!targetOrg || problemFor(checkOnly)) return;
+    if (!workspace && !metadataScope) return;
     setNotice(null);
+
+    // Only the picked components, named one by one. A type left whole sends
+    // the bare kind — except folder and child types, which have no wildcard
+    // and have to name every member instead.
+    //
+    // Those lists are fetched here when the type was never expanded: taking
+    // the cache alone would treat an unlisted type as having no components
+    // and quietly leave it out of the deploy.
+    const fullMembers: Record<string, string[]> = {};
+    const unlistable: string[] = [];
+    if (metadataScope) {
+      for (const kind of selectedMetadata) {
+        const type = catalog.find((item) => item.xmlName === kind);
+        if (!needsExplicitMembers(type)) continue;
+        if ((selectedMembers[kind] ?? []).length > 0) continue;
+        const cached = listed.byKind[kind];
+        if (cached) {
+          fullMembers[kind] = cached;
+          continue;
+        }
+        try {
+          fullMembers[kind] = await listComponents(
+            sourceUsername as string,
+            kind,
+          );
+        } catch {
+          unlistable.push(kind);
+        }
+      }
+    }
+    if (unlistable.length > 0) {
+      setNotice(
+        `Could not list the components of ${unlistable.join(", ")}. Open ${
+          unlistable.length === 1 ? "that type" : "those types"
+        } to pick components, or clear them.`,
+      );
+      return;
+    }
+
+    const { specs, empty } = resolveMetadataSpecs(
+      selectedMetadata,
+      selectedMembers,
+      fullMembers,
+    );
+    if (metadataScope && empty.length > 0) {
+      setNotice(
+        `${sourceOrg?.alias ?? "The source org"} has no components of ${empty.join(", ")}, and ${
+          empty.length === 1 ? "that type" : "those types"
+        } cannot be deployed as a whole. Clear ${empty.length === 1 ? "it" : "them"} and try again.`,
+      );
+      return;
+    }
 
     const scope: DeployScope =
       form.scope === "workspace"
@@ -245,22 +369,31 @@ export default function DeploymentsPage() {
           ? { kind: "paths", paths: changedPaths }
           : form.scope === "paths"
             ? { kind: "paths", paths: selectedPaths }
-            : { kind: "metadata", metadata: selectedMetadata };
+            : {
+                kind: "orgSource",
+                sourceUsername: sourceUsername as string,
+                metadata: specs,
+              };
+    const counted = selectionCount(
+      selectedMetadata,
+      selectedMembers,
+      listed.byKind,
+    );
     const label = scopeLabel(form.scope, {
       changed: changedPaths.length,
       metadata: selectedMetadata,
       paths: selectedPaths,
+      components: counted.known ? counted.components : undefined,
     });
 
     // A validation commits nothing, so only a real deploy asks first.
     if (!checkOnly) {
       // Another org's folder is a legitimate promotion (sandbox → production),
       // but it is also what a stale selection looks like: always name it.
-      const mismatch = workspaceOrgMismatchPrompt(
-        workspace,
-        targetOrg,
-        organizations,
-      );
+      // An org → org deploy sends no workspace files, so it cannot mismatch.
+      const mismatch = metadataScope
+        ? null
+        : workspaceOrgMismatchPrompt(workspace, targetOrg, organizations);
       if (mismatch && !(await confirm(mismatch))) return;
 
       const level =
@@ -274,7 +407,7 @@ export default function DeploymentsPage() {
           : "This writes metadata to the org.",
         details: [
           `What:  ${label}`,
-          `From:  ${workspace.name}`,
+          `From:  ${metadataScope ? (sourceOrg?.alias ?? sourceUsername) : workspace?.name}`,
           `To:    ${targetOrg.alias} (${targetOrg.orgType}) · ${targetOrg.username}`,
           `Tests: ${level}`,
         ],
@@ -284,13 +417,19 @@ export default function DeploymentsPage() {
       if (!confirmed) return;
     }
 
-    if (!(await useWorkspaceStore.getState().saveBeforeDeploy())) return;
+    // Unsaved editor buffers only matter when the workspace is what is sent.
+    if (
+      !metadataScope &&
+      !(await useWorkspaceStore.getState().saveBeforeDeploy())
+    ) {
+      return;
+    }
 
     setStarting(checkOnly ? "validate" : "deploy");
     try {
       const record = await useDeployJobsStore.getState().start({
         username: targetOrg.username,
-        workspaceId: workspace.id,
+        workspaceId: metadataScope ? null : (workspace?.id ?? null),
         options: {
           scope,
           checkOnly,
@@ -304,6 +443,7 @@ export default function DeploymentsPage() {
       refreshChangesWhenDone(record);
     } catch (error) {
       setNotice(errorMessage(error));
+      offerReauthentication(error, targetOrg);
     } finally {
       setStarting(null);
     }
@@ -327,6 +467,7 @@ export default function DeploymentsPage() {
       await useDeployJobsStore.getState().cancel(record);
     } catch (error) {
       setActionError(errorMessage(error));
+      offerReauthentication(error, orgFor(record.username));
     } finally {
       setActing(null);
     }
@@ -361,22 +502,66 @@ export default function DeploymentsPage() {
       refreshChangesWhenDone(record);
     } catch (error) {
       setActionError(errorMessage(error));
+      offerReauthentication(error, org);
     } finally {
       setActing(null);
     }
   };
 
+  const clearMetadataSelection = () => {
+    setSelectedMetadata([]);
+    setSelectedMembers({});
+    setExpandedType(null);
+  };
+
   const handleTargetChange = (org: Organization | null) => {
     setTargetId(org?.id ?? "");
-    setSelectedMetadata([]);
+    clearMetadataSelection();
+  };
+
+  // A selection means nothing against a different org's components.
+  const handleSourceChange = (org: Organization | null) => {
+    setSourceId(org?.id ?? null);
+    clearMetadataSelection();
   };
 
   const toggleMetadata = (xmlName: string) =>
+    setSelectedMetadata((current) => {
+      if (!current.includes(xmlName)) return [...current, xmlName];
+      // Deselecting a type drops the components picked inside it, so
+      // reselecting it later does not resurrect a stale narrowing.
+      setSelectedMembers((members) => withoutType(members, xmlName));
+      return current.filter((item) => item !== xmlName);
+    });
+
+  /** Picking a component implies the type it belongs to. */
+  const toggleMember = (xmlName: string, member: string) => {
+    setSelectedMembers((current) => {
+      const picked = current[xmlName] ?? [];
+      const next = picked.includes(member)
+        ? picked.filter((item) => item !== member)
+        : [...picked, member];
+      // The last component unpicked leaves the type whole again.
+      if (next.length === 0) return withoutType(current, xmlName);
+      return { ...current, [xmlName]: next };
+    });
     setSelectedMetadata((current) =>
-      current.includes(xmlName)
-        ? current.filter((item) => item !== xmlName)
-        : [...current, xmlName],
+      current.includes(xmlName) ? current : [...current, xmlName],
     );
+  };
+
+  const selectAllMembers = (xmlName: string) => {
+    const all = listed.byKind[xmlName] ?? [];
+    if (all.length === 0) return;
+    setSelectedMembers((current) => ({ ...current, [xmlName]: all }));
+    setSelectedMetadata((current) =>
+      current.includes(xmlName) ? current : [...current, xmlName],
+    );
+  };
+
+  /** Clearing a type's components leaves the type whole, not deselected. */
+  const clearMembers = (xmlName: string) =>
+    setSelectedMembers((current) => withoutType(current, xmlName));
 
   const running = history.filter((record) => !record.done).length;
 
@@ -409,6 +594,9 @@ export default function DeploymentsPage() {
         organizations={organizations}
         targetOrg={targetOrg}
         onTargetChange={handleTargetChange}
+        fromOrg={metadataScope}
+        sourceOrg={sourceOrg}
+        onSourceChange={handleSourceChange}
       />
 
       {notice && (
@@ -444,27 +632,46 @@ export default function DeploymentsPage() {
             deployProblem={deployProblem}
             onValidate={() => void submit(true)}
             onDeploy={() => void submit(false)}
-          />
-
-          {form.scope === "metadata" && (
-            <>
-              {typesError && (
-                <p className={styles.inlineError} role="alert">
-                  Could not load metadata types from {targetOrg?.alias}:{" "}
-                  {typesError}
-                </p>
-              )}
-              <MetadataSelector
-                metadataTypes={metadataTypes}
-                selected={selectedMetadata}
-                search={search}
-                loading={typesLoading}
-                onSearchChange={setSearch}
-                onToggle={toggleMetadata}
-                onClear={() => setSelectedMetadata([])}
-              />
-            </>
-          )}
+          >
+            {metadataScope && (
+              <>
+                {!sourceOrg && (
+                  <p className={styles.inlineError} role="status">
+                    Choose a source org above to list its metadata.
+                  </p>
+                )}
+                {typesError && (
+                  <p className={styles.inlineError} role="alert">
+                    Could not load metadata types from {sourceOrg?.alias}:{" "}
+                    {typesError}
+                  </p>
+                )}
+                {sourceOrg && (
+                  <MetadataSelector
+                    metadataTypes={catalog}
+                    selected={selectedMetadata}
+                    selectedMembers={selectedMembers}
+                    components={listed.byKind}
+                    expanded={expandedType}
+                    search={search}
+                    loading={types.isFetching}
+                    componentsLoading={listed.loading}
+                    componentsError={componentsError}
+                    disabled={starting !== null}
+                    embedded
+                    onSearchChange={setSearch}
+                    onToggle={toggleMetadata}
+                    onExpand={setExpandedType}
+                    onToggleMember={toggleMember}
+                    onSelectAllMembers={selectAllMembers}
+                    onClearMembers={clearMembers}
+                    onRetryComponents={listed.refetch}
+                    onClear={clearMetadataSelection}
+                  />
+                )}
+              </>
+            )}
+          </DeployForm>
         </div>
 
         <div className={styles.rightCol}>

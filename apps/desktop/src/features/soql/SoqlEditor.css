@@ -1,0 +1,14 @@
+/* The SOQL editor pane. Monaco fills it, so the height comes from the parent. */
+.soql-editor {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.soql-editor .monaco-editor,
+.soql-editor .monaco-editor .overflow-guard {
+  border-radius: var(--radius-sm);
+}

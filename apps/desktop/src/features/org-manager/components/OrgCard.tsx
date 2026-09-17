@@ -15,6 +15,7 @@ import {
   Check,
   Cloud,
   ExternalLink,
+  Info,
   KeyRound,
   LogOut,
   MapPin,
@@ -24,17 +25,14 @@ import {
 import { isProtectedOrg, protectionPrompt } from "../lib/orgProtection";
 import { confirm } from "../../../components/ui/Confirm/confirm";
 import { toast } from "../../../components/ui/Toast/toast";
-import ConnectOrgDialog from "./ConnectOrgDialog";
+import { requestReauthentication } from "../store/reauthStore";
+import OrgDetailsDialog from "./OrgDetailsDialog";
+import { errorMessage } from "../../../lib/errors";
 
 import styles from "./OrgCard.module.css";
 
 interface Props {
   org: Organization;
-}
-
-function errorText(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return typeof error === "string" ? error : "Something went wrong.";
 }
 
 export default function OrgCard({ org }: Props) {
@@ -51,7 +49,7 @@ export default function OrgCard({ org }: Props) {
   // set-default looked like the button did nothing.
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"default" | "logout" | "open" | null>(null);
-  const [reauthOpen, setReauthOpen] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
   const isSelected = selectedOrganization?.id === org.id;
   const isProtected = isProtectedOrg(org);
@@ -63,7 +61,7 @@ export default function OrgCard({ org }: Props) {
     try {
       await work();
     } catch (caught) {
-      setError(errorText(caught));
+      setError(errorMessage(caught));
     } finally {
       setBusy(null);
     }
@@ -161,7 +159,7 @@ export default function OrgCard({ org }: Props) {
             variant="primary"
             size="sm"
             leftIcon={<KeyRound size={14} />}
-            onClick={() => setReauthOpen(true)}
+            onClick={() => requestReauthentication(org)}
           >
             Re-authenticate
           </Button>
@@ -201,6 +199,15 @@ export default function OrgCard({ org }: Props) {
         <Button
           variant="ghost"
           size="sm"
+          leftIcon={<Info size={14} />}
+          onClick={() => setShowDetails(true)}
+        >
+          Details
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="sm"
           leftIcon={<Star size={14} />}
           onClick={() => void handleSetDefault()}
           loading={busy === "default"}
@@ -220,11 +227,8 @@ export default function OrgCard({ org }: Props) {
         </Button>
       </div>
 
-      {reauthOpen && (
-        <ConnectOrgDialog
-          reauthenticate={org}
-          onClose={() => setReauthOpen(false)}
-        />
+      {showDetails && (
+        <OrgDetailsDialog org={org} onClose={() => setShowDetails(false)} />
       )}
     </div>
   );

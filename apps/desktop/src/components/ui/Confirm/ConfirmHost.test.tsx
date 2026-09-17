@@ -9,7 +9,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import ConfirmHost from "./ConfirmHost";
-import { ask, confirm, previewList, useAskStore } from "./confirm";
+import { ask, confirm, previewList, prompt, useAskStore } from "./confirm";
 
 afterEach(() => {
   cleanup();
@@ -136,6 +136,43 @@ describe("ask", () => {
     const dismissed = start(() => ask(options));
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     await expect(dismissed).resolves.toBeNull();
+  });
+});
+
+describe("prompt", () => {
+  it("resolves with the trimmed text, from the button or Enter", async () => {
+    render(<ConfirmHost />);
+
+    const typed = start(() =>
+      prompt({ title: "Rename workspace", initialValue: "acme" }),
+    );
+    const field = screen.getByRole("textbox");
+    expect(document.activeElement).toBe(field);
+
+    fireEvent.change(field, { target: { value: "  acme uat  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await expect(typed).resolves.toBe("acme uat");
+
+    const entered = start(() => prompt({ title: "Rename workspace" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "dev" } });
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    await expect(entered).resolves.toBe("dev");
+  });
+
+  it("cannot be confirmed while empty, and dismisses to null", async () => {
+    render(<ConfirmHost />);
+    const result = start(() =>
+      prompt({ title: "Rename workspace", initialValue: "acme" }),
+    );
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "  " } });
+    const save = screen.getByRole("button", { name: "Save" });
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    expect(screen.queryByRole("dialog")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await expect(result).resolves.toBeNull();
   });
 });
 

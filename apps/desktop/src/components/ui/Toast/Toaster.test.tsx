@@ -88,6 +88,21 @@ describe("Toaster", () => {
     expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 
+  it("runs a notice's action, then closes it", () => {
+    render(<Toaster />);
+    const onClick = vi.fn();
+    act(() => {
+      toast.error("The session expired.", {
+        durationMs: null,
+        action: { label: "Re-authenticate", onClick },
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Re-authenticate" }));
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("keeps only the newest four", () => {
     render(<Toaster />);
     act(() => {

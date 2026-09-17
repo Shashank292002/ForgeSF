@@ -85,6 +85,7 @@ export default function SourceControl() {
               type="button"
               className="workspace-scm__tool"
               title="Save All"
+              aria-label="Save all files"
               onClick={() => void saveAll()}
             >
               <Save size={14} />
@@ -94,6 +95,7 @@ export default function SourceControl() {
             type="button"
             className="workspace-scm__tool"
             title="Rescan for changes"
+            aria-label="Rescan for changes"
             onClick={() => void loadChanges()}
           >
             {changesLoading ? (
@@ -142,6 +144,7 @@ export default function SourceControl() {
                         type="button"
                         className="workspace-scm__op"
                         title="Discard unsaved edits"
+                        aria-label={`Discard unsaved edits in ${getBaseName(path)}`}
                         onClick={() => void revertFile(path)}
                       >
                         <Undo2 size={13} />

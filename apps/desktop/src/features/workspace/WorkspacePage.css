@@ -2,46 +2,9 @@
    ForgeSF Workspace — VS Code-style dark chrome
    ────────────────────────────────────────────────────────────── */
 
-/*
- * The Workspace deliberately wears VS Code's palette rather than the app's
- * purple/cyan brand: it is a code editor, and developers read these greys as
- * "editor chrome". That is a design decision, not drift — so the surface
- * colours below are literal, while anything whose *meaning* is shared with the
- * rest of the app (brand accent, fonts, motion) refers to the brand tokens so
- * there is one definition rather than two that drift apart.
- */
+/* The --fw-* palette this file and its components read is defined, with the
+   app's other tokens, in src/styles/variables.css. */
 .forge-ws {
-  --fw-bg: #1e1e1e;
-  --fw-bg-dark: #181818;
-  --fw-bg-drop: #1b1b1b;
-  --fw-bg-activitybar: #333333;
-  --fw-bg-sidebar: #252526;
-  --fw-bg-header: #2d2d30;
-  --fw-bg-tab: #2d2d30;
-  --fw-bg-tab-active: #1e1e1e;
-  --fw-bg-hover: rgba(255, 255, 255, 0.08);
-  --fw-bg-active: #094771;
-  --fw-bg-statusbar: #007acc;
-  --fw-bg-input: #3c3c3c;
-  --fw-border: #3c3c3c;
-  --fw-border-soft: #333333;
-  --fw-text: #cccccc;
-  --fw-text-secondary: #9d9d9d;
-  --fw-muted: #858585;
-  --fw-accent: #0078d4;
-  --fw-accent-soft: rgba(0, 120, 212, 0.18);
-  --fw-brand: var(--color-primary);
-
-  /* VS Code's own semantic colours — chosen to sit against the greys above
-     rather than the app's brighter brand set. */
-  --fw-success: #89d185;
-  --fw-warning: #cca700;
-  --fw-error: #f14c4c;
-  --fw-info: #75beff;
-
-  --fw-font-mono: var(--font-mono);
-  --fw-motion-fast: var(--motion-fast);
-
   display: flex;
   flex-direction: column;
   width: 100%;

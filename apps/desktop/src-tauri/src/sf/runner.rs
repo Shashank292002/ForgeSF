@@ -9,6 +9,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::error::{AppError, AppResult, ErrorKind};
+// Only `kill_process_tree` uses it, and only on Windows — an ungated import
+// is an unused one everywhere else, which `-D warnings` rejects.
+#[cfg(windows)]
 use crate::sf::discover::hide_console;
 use crate::util::{lock, next_temp_suffix};
 
